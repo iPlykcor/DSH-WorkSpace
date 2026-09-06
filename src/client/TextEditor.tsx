@@ -495,6 +495,11 @@ export function TextEditor(props: FileViewerProps) {
         )}
       </div>
       )}
+      {saveState === 'failed' && saveError !== null && (
+        <div className={css.editorSaveError} role="alert" title={saveError}>
+          {saveError}
+        </div>
+      )}
       {editable && (
         <>
           {truncated === true && mode === 'edit' && <div className={css.editorBanner}>{t('truncation')}</div>}

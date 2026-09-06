@@ -2776,3 +2776,14 @@ body[data-dsh-sidebar-dragging] .bottomPanel {
 }
 .wsViewActionButton:disabled { opacity: 0.5; }
 .wsViewNote { font: var(--dsw-font-xxxs-11); color: var(--dsw-alias-label-secondary); }
+
+/* Editor save-failure reason banner (full-width, below the toolbar). */
+.editorSaveError {
+  margin: 4px 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-state-error-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+  word-break: break-word;
+}
