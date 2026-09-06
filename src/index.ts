@@ -37,6 +37,7 @@ import { ensureWsReadTarget, ensureWsWriteTarget } from './workspace-guards.ts'
 import { assertWsWriteAllowed, WsManifestError, wsReadBases } from './workspace-policy.ts'
 import { hostCaseInsensitive, snapshotOf, WorkspaceRegistry } from './workspace-state.ts'
 import { rollbackWsViolation, scanWsViolations } from './workspace-detector.ts'
+import { WORKSPACE_SKILL } from './workspace-skill.ts'
 import { searchFiles } from './fs-search.ts'
 import { decodeHtmlUrl } from './html-route.ts'
 import { extractFrameAncestors } from './browser-probe.ts'
@@ -83,6 +84,11 @@ export const name = 'dsh-better-sidebar'
 
 /** Services required before mounting: the webserver routes, the session store, the web runtime's trusted hosts, and the tool registry. */
 export const inject = ['webServer', 'sessions', 'webRuntime', 'tools']
+
+/** Structural face of the optional skills registry (mirrored, not imported). */
+interface SkillsRegistryFace {
+  register(skill: unknown): () => void
+}
 
 /** Content types for the media route, by extension. */
 const MEDIA_TYPES: Record<string, string> = {
@@ -814,6 +820,13 @@ function buildApi(
  * {@link resolveSidebarConfig}.
  */
 export function apply(ctx: Context, config?: SidebarConfig): void {
+  // Register the bundled `.dsh-workspace` runtime skill (if the host has a
+  // skills registry): the model then sees it in its skill catalog and knows
+  // the format without scanning for an example. Bundled => one deploy.
+  const skillsRegistry = ctx.get('skills') as SkillsRegistryFace | undefined
+  if (skillsRegistry?.register !== undefined) {
+    ctx.effect(() => skillsRegistry.register(WORKSPACE_SKILL), 'dshws: register .dsh-workspace skill')
+  }
   // pnpm strips the executable bit from node-pty's prebuilt spawn-helper;
   // restore it before any terminal can spawn (idempotent).
   ensureSpawnHelper()
