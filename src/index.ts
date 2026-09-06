@@ -13,7 +13,7 @@
  * session's authoritative cwd comes from the session store, and terminal
  * processes are keyed by session.
  */
-import { mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, open, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join } from 'node:path'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
@@ -33,6 +33,10 @@ import { parentOf, requireAbsolute, listDirectory, rootLabel } from './fs-tree.t
 import { resolveSessionPath } from './session-path.ts'
 import { renameWorkspaceEntry, removeWorkspaceEntry, writeWorkspaceUpload } from './fs-operations.ts'
 import { ensureWorkspacePath, ensureWorkspaceWritePath } from './path-security.ts'
+import { ensureWsReadTarget, ensureWsWriteTarget } from './workspace-guards.ts'
+import { assertWsWriteAllowed, WsManifestError, wsReadBases } from './workspace-policy.ts'
+import { hostCaseInsensitive, snapshotOf, WorkspaceRegistry } from './workspace-state.ts'
+import { rollbackWsViolation, scanWsViolations } from './workspace-detector.ts'
 import { searchFiles } from './fs-search.ts'
 import { decodeHtmlUrl } from './html-route.ts'
 import { extractFrameAncestors } from './browser-probe.ts'
@@ -142,9 +146,27 @@ async function sessionCwdOf(ctx: Context, sessionId: string, clientCwd?: string)
   return process.cwd()
 }
 
+/** The session event log (live snapshot, then the persisted log for cold
+ *  sessions) the read-only-write detector and the rollback scan fold. */
+async function eventsOfSession(
+  ctx: Context,
+  sessionId: string,
+): Promise<readonly SidebarSessionEvent[]> {
+  const live = ctx.sessions.get(sessionId)?.snapshotEvents()
+  if (live !== undefined) return live
+  const persistence = ctx.get('sessionPersistence')
+  if (persistence !== undefined) {
+    try {
+      return (await persistence.inspect(sessionId)).events
+    } catch {
+      // Cold read unavailable (session never persisted): empty window.
+    }
+  }
+  return []
+}
+
 /** Optional repository selected by the Git panel when cwd is a container. */
-function selectedRepoOf(payload: unknown): string | undefined {
-  const record = payload as { repoRoot?: unknown }
+function selectedRepoOf(payload: unknown): string | undefined {  const record = payload as { repoRoot?: unknown }
   if (record.repoRoot === undefined) return undefined
   return requireAbsolute(requireString(payload, 'repoRoot'))
 }
@@ -298,6 +320,7 @@ function buildApi(
   resolved: ResolvedSidebarConfig,
   terminalShell: string,
   getSettings: () => SidebarSettingsFace | undefined,
+  wsReg: WorkspaceRegistry,
 ): Record<string, ApiMethod> {
   const cwdOf = async (payload: unknown): Promise<{ sessionId: string; cwd: string }> => {
     const sessionId = requireString(payload, 'sessionId')
@@ -312,6 +335,47 @@ function buildApi(
     const record = payload as { worktree?: unknown } | null
     const requested = typeof record?.worktree === 'string' && record.worktree !== '' ? record.worktree : undefined
     return { sessionId: base.sessionId, cwd: await git.resolveWorktree(base.cwd, requested) }
+  }
+  /**
+   * Resolve a READ target honoring an active multi-root workspace; without
+   * one the legacy single-cwd fence applies unchanged.
+   */
+  const readTargetOf = async (sessionId: string, cwd: string, raw: string): Promise<string> => {
+    const active = wsReg.get(sessionId)
+    return active === undefined
+      ? ensureWorkspacePath(cwd, raw, fenceEnabledOf(getSettings))
+      : ensureWsReadTarget(cwd, raw, wsReadBases(active), active.ci)
+  }
+  /**
+   * Resolve + authorize a WRITE target: canonicalize against the active
+   * workspace's read roots (so missing destinations under any declared root
+   * resolve), then the longest-prefix policy gives the final verdict — a
+   * readOnly root nested inside a readWrite root still refuses.
+   */
+  const writeTargetOf = async (sessionId: string, cwd: string, raw: string): Promise<string> => {
+    const active = wsReg.get(sessionId)
+    if (active === undefined) return ensureWorkspaceWritePath(cwd, raw, fenceEnabledOf(getSettings))
+    const canonical = await ensureWsWriteTarget(cwd, raw, wsReadBases(active), active.ci)
+    assertWsWriteAllowed(active, canonical, raw)
+    return canonical
+  }
+  /**
+   * Repo-wide git mutations (stage paths / unstage / commit / checkout /
+   * revert / cherry-pick) are refused when the git working directory itself
+   * lands in a readOnly root. Nested readOnly roots under a writable repo are
+   * an accepted v1 limitation (files inside them are still protected from
+   * sidebar edits/uploads; git-level per-path gating is future work).
+   */
+  const requireWritableGitDir = async (sessionId: string, dir: string): Promise<void> => {
+    const active = wsReg.get(sessionId)
+    if (active === undefined) return
+    try {
+      const real = await realpath(dir)
+      assertWsWriteAllowed(active, real, dir)
+    } catch (error) {
+      if (error instanceof SidebarError) throw error
+      // Unresolvable dir — let the git command surface its own error.
+    }
   }
   // Background jobs: the LIST rides the harness's `session/jobs` push
   // mirror, so these routes only replay output the model has read (from the
@@ -329,9 +393,10 @@ function buildApi(
       return { sessionId, cwd, root: rootLabel(cwd), parent: parentOf(cwd) ?? null }
     },
     'fs.tree': async (payload) => {
-      const { cwd } = await cwdOf(payload)
+      const { sessionId, cwd } = await cwdOf(payload)
       const record = payload as { path?: unknown }
-      const target = record.path === undefined ? cwd : await ensureWorkspacePath(cwd, requireString(payload, 'path'), fenceEnabledOf(getSettings))
+      const raw = record.path === undefined ? cwd : requireString(payload, 'path')
+      const target = await readTargetOf(sessionId, cwd, raw)
       return listDirectory(target, resolved.listLimit)
     },
     'fs.search': async (payload) => {
@@ -343,20 +408,21 @@ function buildApi(
       return searchFiles(cwd, query)
     },
     'fs.read': async (payload) => {
-      const { cwd } = await cwdOf(payload)
+      const { sessionId, cwd } = await cwdOf(payload)
       // Relative paths are git-derived (status/diff report repo-root-relative
       // names; the untracked diff view reads the file through this route). A
       // child-repo path is relative to the selected repoRoot, not the session
       // cwd; thread it so the path resolves inside the authorized workspace.
       const selected = selectedRepoOf(payload)
-      const path = await ensureWorkspacePath(cwd, await resolveGitPath(cwd, requireString(payload, 'path'), selected), fenceEnabledOf(getSettings))
+      const resolvedGit = await resolveGitPath(cwd, requireString(payload, 'path'), selected)
+      const path = await readTargetOf(sessionId, cwd, resolvedGit)
       const { content, truncated, binary, size, head } = await readText(path, resolved.readLimit)
       if (binary) return { kind: 'binary', size, truncated, head }
       return { kind: 'text', content, truncated }
     },
     'fs.write': async (payload) => {
-      const { cwd } = await cwdOf(payload)
-      const path = await ensureWorkspaceWritePath(cwd, requireString(payload, 'path'), fenceEnabledOf(getSettings))
+      const { sessionId, cwd } = await cwdOf(payload)
+      const path = await writeTargetOf(sessionId, cwd, requireString(payload, 'path'))
       const content = requireString(payload, 'content')
       const tmp = `${path}.dsh-sidebar-tmp-${process.pid}`
       try {
@@ -373,22 +439,24 @@ function buildApi(
     // workspace-root refusals, link-aware (renames the row, not its target).
     // fs-operations.ts owns the containment and shape rules.
     'fs.rename': async (payload) => {
-      const { cwd } = await cwdOf(payload)
+      const { sessionId, cwd } = await cwdOf(payload)
       return renameWorkspaceEntry({
         cwd,
         path: requireString(payload, 'path'),
         name: requireString(payload, 'name'),
         fence: fenceEnabledOf(getSettings),
+        workspace: wsReg.get(sessionId),
       })
     },
     // The tree row's delete (permanent — the host has no trash): recursive
     // for directories, unlinks a symlink row without touching its target.
     'fs.remove': async (payload) => {
-      const { cwd } = await cwdOf(payload)
+      const { sessionId, cwd } = await cwdOf(payload)
       return removeWorkspaceEntry({
         cwd,
         path: requireString(payload, 'path'),
         fence: fenceEnabledOf(getSettings),
+        workspace: wsReg.get(sessionId),
       })
     },
     'git.worktrees': async (payload) => {
@@ -412,21 +480,24 @@ function buildApi(
       return { diff: await git.diff(cwd, path, record.staged === true, repoRoot) }
     },
     'git.stage': async (payload) => {
-      const { cwd } = await gitCwdOf(payload)
+      const { sessionId, cwd } = await gitCwdOf(payload)
+      await requireWritableGitDir(sessionId, cwd)
       const record = payload as { path?: unknown }
       const path = record.path === undefined ? undefined : requireString(payload, 'path')
       await git.stage(cwd, path, selectedRepoOf(payload))
       return { ok: true }
     },
     'git.unstage': async (payload) => {
-      const { cwd } = await gitCwdOf(payload)
+      const { sessionId, cwd } = await gitCwdOf(payload)
+      await requireWritableGitDir(sessionId, cwd)
       const record = payload as { path?: unknown }
       const path = record.path === undefined ? undefined : requireString(payload, 'path')
       await git.unstage(cwd, path, selectedRepoOf(payload))
       return { ok: true }
     },
     'git.commit': async (payload) => {
-      const { cwd } = await gitCwdOf(payload)
+      const { sessionId, cwd } = await gitCwdOf(payload)
+      await requireWritableGitDir(sessionId, cwd)
       const message = requireString(payload, 'message')
       await git.commit(cwd, message, selectedRepoOf(payload))
       return { ok: true }
@@ -436,7 +507,8 @@ function buildApi(
       return git.branches(cwd, selectedRepoOf(payload))
     },
     'git.checkout': async (payload) => {
-      const { cwd } = await gitCwdOf(payload)
+      const { sessionId, cwd } = await gitCwdOf(payload)
+      await requireWritableGitDir(sessionId, cwd)
       await git.checkout(cwd, requireString(payload, 'branch'), selectedRepoOf(payload))
       return { ok: true }
     },
@@ -456,18 +528,21 @@ function buildApi(
       return { diff: await git.commitDiff(cwd, requireString(payload, 'hash'), selectedRepoOf(payload)) }
     },
     'git.discard': async (payload) => {
-      const { cwd } = await gitCwdOf(payload)
+      const { sessionId, cwd } = await gitCwdOf(payload)
+      await requireWritableGitDir(sessionId, cwd)
       const repoRoot = selectedRepoOf(payload)
       await git.discard(cwd, await resolveGitPath(cwd, requireString(payload, 'path'), repoRoot), repoRoot)
       return { ok: true }
     },
     'git.revert': async (payload) => {
-      const { cwd } = await gitCwdOf(payload)
+      const { sessionId, cwd } = await gitCwdOf(payload)
+      await requireWritableGitDir(sessionId, cwd)
       await git.revert(cwd, requireString(payload, 'hash'), selectedRepoOf(payload))
       return { ok: true }
     },
     'git.cherry-pick': async (payload) => {
-      const { cwd } = await gitCwdOf(payload)
+      const { sessionId, cwd } = await gitCwdOf(payload)
+      await requireWritableGitDir(sessionId, cwd)
       await git.cherryPick(cwd, requireString(payload, 'hash'), selectedRepoOf(payload))
       return { ok: true }
     },
@@ -515,6 +590,48 @@ function buildApi(
       )
       const window = filtered.length > CHANGES_EVENTS_CAP ? filtered.slice(filtered.length - CHANGES_EVENTS_CAP) : filtered
       return { events: window, lastSeq: window.at(-1)?.seq ?? afterSeq }
+    },
+    // ── Active multi-root workspace (.dsh-workspace) ───────────────────────
+    // The authoritative state lives HERE (per session); the client mirrors
+    // the snapshot into its per-session layout state for rendering and
+    // reload restore (it re-activates when the host reports none).
+    'workspace.state': async (payload) => {
+      const { sessionId } = await cwdOf(payload)
+      const active = wsReg.get(sessionId)
+      return { workspace: active === undefined ? null : snapshotOf(active) }
+    },
+    'workspace.activate': async (payload) => {
+      const { sessionId, cwd } = await cwdOf(payload)
+      try {
+        const active = await wsReg.activate(sessionId, requireString(payload, 'path'), cwd, hostCaseInsensitive())
+        return { workspace: snapshotOf(active), warnings: active.warnings }
+      } catch (error) {
+        if (error instanceof WsManifestError) {
+          throw new SidebarError('bad-request', error.message, 400)
+        }
+        throw error
+      }
+    },
+    'workspace.deactivate': async (payload) => {
+      const { sessionId } = await cwdOf(payload)
+      wsReg.deactivate(sessionId)
+      return { ok: true }
+    },
+    'workspace.violations': async (payload) => {
+      const { sessionId, cwd } = await cwdOf(payload)
+      const active = wsReg.get(sessionId)
+      if (active === undefined) return { violations: [] }
+      const events = await eventsOfSession(ctx, sessionId)
+      return { violations: await scanWsViolations(active, cwd, events) }
+    },
+    'workspace.rollback': async (payload) => {
+      const { sessionId, cwd } = await cwdOf(payload)
+      const active = wsReg.get(sessionId)
+      if (active === undefined) {
+        throw new SidebarError('forbidden', 'no active workspace for this session', 403)
+      }
+      const events = await eventsOfSession(ctx, sessionId)
+      return rollbackWsViolation(active, cwd, events, requireString(payload, 'callId'))
     },
     // Release a terminal immediately. The WebSocket close frame already does
     // this while the socket is open; this route covers the tab-close that
@@ -850,7 +967,25 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
   })
 
   // ── JSON API ────────────────────────────────────────────────────────────
-  const api = buildApi(ctx, ptyManager, agentPtyRegistry, resolved, terminalShell, () => settingsFace)
+  // Per-session multi-root workspace registry (.dsh-workspace) + the
+  // workspace-aware path helpers shared by the API methods (inside buildApi)
+  // and the raw routes below (media / html / upload).
+  const workspaceRegistry = new WorkspaceRegistry((message) => ctx.logger?.info(`[dshws] ${message}`))
+  const wsReadTarget = async (sessionId: string, cwd: string, raw: string): Promise<string> => {
+    const active = workspaceRegistry.get(sessionId)
+    return active === undefined
+      ? ensureWorkspacePath(cwd, raw, fenceEnabledOf(() => settingsFace))
+      : ensureWsReadTarget(cwd, raw, wsReadBases(active), active.ci)
+  }
+  const wsWriteTarget = async (sessionId: string, cwd: string, raw: string): Promise<string> => {
+    const active = workspaceRegistry.get(sessionId)
+    if (active === undefined) return ensureWorkspaceWritePath(cwd, raw, fenceEnabledOf(() => settingsFace))
+    const canonical = await ensureWsWriteTarget(cwd, raw, wsReadBases(active), active.ci)
+    assertWsWriteAllowed(active, canonical, raw)
+    return canonical
+  }
+  ctx.effect(() => () => workspaceRegistry.dispose(), 'dshws: workspace registry teardown')
+  const api = buildApi(ctx, ptyManager, agentPtyRegistry, resolved, terminalShell, () => settingsFace, workspaceRegistry)
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
     path: '/sidebar/api',
@@ -916,6 +1051,7 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
           chunks: req,
           limit: resolved.uploadLimit,
           fence: fenceEnabledOf(() => settingsFace),
+          workspace: workspaceRegistry.get(sessionId),
         })
         writeOk(res, { path, size })
       } catch (error) {
@@ -951,7 +1087,7 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
         const raw = url.searchParams.get('path')
         if (sessionId === null || raw === null) throw new SidebarError('bad-request', 'sessionId and path are required')
         const cwd = await sessionCwdOf(ctx, sessionId, url.searchParams.get('cwd') ?? undefined)
-        const path = await ensureWorkspacePath(cwd, raw, fenceEnabledOf(() => settingsFace))
+        const path = await wsReadTarget(sessionId, cwd, raw)
         const info = await stat(path)
         if (!info.isFile() || info.size > resolved.mediaLimit) {
           throw new SidebarError('fs-error', 'not a file or too large', 400)
@@ -1010,7 +1146,7 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
         // real-path guard, with the same semantics as the media route's
         // fallback.
         const cwd = await sessionCwdOf(ctx, sessionId)
-        const absolute = await ensureWorkspacePath(cwd, path, fenceEnabledOf(() => settingsFace))
+        const absolute = await wsReadTarget(sessionId, cwd, path)
         const info = await stat(absolute)
         if (!info.isFile() || info.size > resolved.mediaLimit) {
           throw new SidebarError('fs-error', 'not a file or too large', 400)

@@ -1,21 +1,27 @@
 /**
- * Workspace-safe file mutations for the sidebar (the upload route today).
+ * Workspace-safe file mutations for the sidebar (the upload route and the
+ * tree's rename/delete).
  *
- * Every write is confined to the real session workspace: the upload
- * directory is resolved absolute and its target is checked through existing
- * filesystem ancestors, the relative path is sanitized (absolute paths, '.',
- * '..' and empty segments are refused), and the final target must stay inside
- * the workspace after symlink resolution. Bytes stream from the request body
- * to a uniquely named temp sibling
- * and are renamed into place, so a failed, aborted, or oversized upload never
- * leaves a partial file at the target path.
+ * Two containment modes:
+ * - LEGACY (no active multi-root workspace): every write is confined to the
+ *   real session workspace. The upload directory is resolved absolute and its
+ *   target is checked through existing filesystem ancestors, the relative
+ *   path is sanitized (absolute paths, '.', '..' and empty segments are
+ *   refused), and the final target must stay inside the workspace after
+ *   symlink resolution. Bytes stream from the request body to a uniquely
+ *   named temp sibling and are renamed into place, so a failed, aborted, or
+ *   oversized upload never leaves a partial file at the target path.
+ * - MULTI-ROOT (`workspace` given): the single-cwd fence is REPLACED by the
+ *   active workspace policy — targets must resolve inside its roots, writes
+ *   must land in a `readWrite` root (longest-prefix verdict; a readOnly
+ *   nested root inside a readWrite root still refuses).
  *
  * The tree's rename/delete (below) are link-aware: existence and containment
  * are verified against the fully resolved target (a symlink pointing outside
- * the workspace is refused while the fence is armed), but the operation
- * itself addresses the lexical row path — renaming or deleting a symlink
- * row renames/unlinks the LINK, never its target, matching what the tree
- * row visually names (VS Code semantics).
+ * the workspace is refused while the fence is armed / outside the roots when
+ * a workspace is active), but the operation itself addresses the lexical row
+ * path — renaming or deleting a symlink row renames/unlinks the LINK, never
+ * its target, matching what the tree row visually names (VS Code semantics).
  */
 import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
@@ -24,6 +30,8 @@ import { access, lstat, mkdir, realpath, rename, rm, stat, unlink } from 'node:f
 import { basename, dirname, join } from 'node:path'
 import { isWithin, requireAbsolute } from './fs-tree.ts'
 import { ensureWorkspacePath, ensureWorkspaceWritePath } from './path-security.ts'
+import { ensureWsReadTarget, ensureWsWriteTarget } from './workspace-guards.ts'
+import { assertWsWriteAllowed, wsReadBases, type ActiveWorkspace } from './workspace-policy.ts'
 import { resolveSessionPath } from './session-path.ts'
 import { SidebarError } from './wire.ts'
 
@@ -41,6 +49,38 @@ export interface WorkspaceUploadInput {
   limit: number
   /** Whether workspace containment is enforced (the `workspaceFence` setting; on by default). */
   fence?: boolean
+  /**
+   * The active multi-root workspace of the session; when present its policy
+   * REPLACES the single-cwd fence — targets must resolve inside its roots and
+   * write targets must land in a readWrite root.
+   */
+  workspace?: ActiveWorkspace
+}
+
+/** Read guard: active workspace policy, or the legacy single-cwd fence. */
+function readGuard(
+  cwd: string,
+  raw: string,
+  fence: boolean,
+  workspace: ActiveWorkspace | undefined,
+): Promise<string> {
+  return workspace === undefined
+    ? ensureWorkspacePath(cwd, raw, fence)
+    : ensureWsReadTarget(cwd, raw, wsReadBases(workspace), workspace.ci)
+}
+
+/** Write guard with the final longest-prefix policy verdict. */
+async function writeGuard(
+  cwd: string,
+  raw: string,
+  fence: boolean,
+  workspace: ActiveWorkspace | undefined,
+): Promise<string> {
+  const canonical = workspace === undefined
+    ? await ensureWorkspaceWritePath(cwd, raw, fence)
+    : await ensureWsWriteTarget(cwd, raw, wsReadBases(workspace), workspace.ci)
+  if (workspace !== undefined) assertWsWriteAllowed(workspace, canonical, raw)
+  return canonical
 }
 
 /**
@@ -55,9 +95,9 @@ export interface WorkspaceUploadInput {
  * failures; the temp file is always removed on failure.
  */
 export async function writeWorkspaceUpload(input: WorkspaceUploadInput): Promise<{ path: string; size: number }> {
-  const { cwd, dir, relativePath, chunks, limit, fence = true } = input
+  const { cwd, dir, relativePath, chunks, limit, fence = true, workspace } = input
   const base = requireAbsolute(dir)
-  await ensureWorkspacePath(cwd, base, fence)
+  await readGuard(cwd, base, fence, workspace)
   if (relativePath === '' || relativePath.startsWith('/') || relativePath.startsWith('\\')) {
     throw new SidebarError('bad-request', 'relativePath must stay below the upload directory', 400)
   }
@@ -66,7 +106,7 @@ export async function writeWorkspaceUpload(input: WorkspaceUploadInput): Promise
     throw new SidebarError('bad-request', 'relativePath must stay below the upload directory', 400)
   }
   const target = join(base, ...segments)
-  const safeTarget = await ensureWorkspaceWritePath(cwd, target, fence)
+  const safeTarget = await writeGuard(cwd, target, fence, workspace)
   const tmp = join(dirname(safeTarget), `.${basename(safeTarget)}.dsh-upload-${randomUUID()}.tmp`)
   await mkdir(dirname(safeTarget), { recursive: true })
   const stream = createWriteStream(tmp, { flags: 'wx' })
@@ -113,19 +153,33 @@ export interface WorkspaceRenameInput {
   name: string
   /** Whether workspace containment is enforced (the `workspaceFence` setting; on by default). */
   fence?: boolean
+  /** Active multi-root workspace (see {@link WorkspaceUploadInput.workspace}). */
+  workspace?: ActiveWorkspace
 }
 
 /** Resolve one existing entry for a link-aware mutation: the lexical row path
- * plus its fully resolved real target (fence-checked). ENOENT becomes an
- * fs-error, mirroring path-security's resolveRealPath semantics. */
+ *  plus its fully resolved real target, checked against the legacy fence or
+ *  the active workspace policy. ENOENT becomes an fs-error, mirroring
+ *  path-security's resolveRealPath semantics. */
 async function resolveEntry(
   cwd: string,
   target: string,
   fence: boolean,
+  workspace: ActiveWorkspace | undefined,
 ): Promise<{ absolute: string; real: string; realCwd: string }> {
   const absolute = requireAbsolute(resolveSessionPath(cwd, target))
   let real: string
   let realCwd: string
+  if (workspace !== undefined) {
+    try {
+      real = await realpath(absolute)
+    } catch (error) {
+      throw new SidebarError('fs-error', `cannot resolve "${target}": ${error instanceof Error ? error.message : String(error)}`, 400)
+    }
+    // The row's canonical target must be writable under the active policy.
+    assertWsWriteAllowed(workspace, real, target)
+    return { absolute, real, realCwd: '' }
+  }
   try {
     ;[realCwd, real] = await Promise.all([realpath(cwd), realpath(absolute)])
   } catch (error) {
@@ -135,6 +189,15 @@ async function resolveEntry(
     throw new SidebarError('forbidden', `path "${target}" is outside workspace`, 403)
   }
   return { absolute, real, realCwd }
+}
+
+/** Whether a canonical row path is a workspace root (legacy cwd or one of the
+ *  multi-root roots) that must never be renamed/removed through the tree. */
+function isRootEntry(real: string, realCwd: string, workspace: ActiveWorkspace | undefined): boolean {
+  if (workspace !== undefined) {
+    return workspace.roots.some(root => root.realPath === real)
+  }
+  return real === realCwd
 }
 
 /** Whether a path exists (ENOENT → false; other failures propagate). */
@@ -152,25 +215,25 @@ async function pathExists(target: string): Promise<boolean> {
  * Rename one tree row within its directory: `path` → `<parent>/<name>`.
  * The new name must be a single path segment (this is rename, not move);
  * an existing destination is refused (POSIX rename would clobber it
- * silently); the workspace root itself is never renamable; a symlink row
- * renames the link, not its target. A no-op rename (same name) succeeds
- * without touching the filesystem.
+ * silently); a workspace root is never renamable; a symlink row renames the
+ * link, not its target. A no-op rename (same name) succeeds without touching
+ * the filesystem.
  *
  * @throws SidebarError with a wire code for shape, containment, existence
  * and root failures.
  */
 export async function renameWorkspaceEntry(input: WorkspaceRenameInput): Promise<{ path: string }> {
-  const { cwd, path, name, fence = true } = input
+  const { cwd, path, name, fence = true, workspace } = input
   if (name === '' || name === '.' || name === '..' || name.includes('/') || name.includes('\\')) {
     throw new SidebarError('bad-request', 'name must be a single path segment', 400)
   }
-  const { absolute, real, realCwd } = await resolveEntry(cwd, path, fence)
-  if (real === realCwd) {
+  const { absolute, real, realCwd } = await resolveEntry(cwd, path, fence, workspace)
+  if (isRootEntry(real, realCwd, workspace)) {
     throw new SidebarError('fs-error', 'cannot rename the workspace root', 400)
   }
   if (basename(absolute) === name) return { path: absolute }
   const destination = join(dirname(absolute), name)
-  const safeDestination = await ensureWorkspaceWritePath(cwd, destination, fence)
+  const safeDestination = await writeGuard(cwd, destination, fence, workspace)
   if (await pathExists(safeDestination)) {
     throw new SidebarError('fs-error', `"${name}" already exists`, 409)
   }
@@ -190,21 +253,23 @@ export interface WorkspaceRemoveInput {
   path: string
   /** Whether workspace containment is enforced (the `workspaceFence` setting; on by default). */
   fence?: boolean
+  /** Active multi-root workspace (see {@link WorkspaceUploadInput.workspace}). */
+  workspace?: ActiveWorkspace
 }
 
 /**
  * Delete one tree row permanently (there is no trash on the host): files are
  * unlinked, directories removed recursively, a symlink row unlinks the LINK
  * only (lstat decides, so a link to a directory does not recurse into its
- * target). The workspace root itself is never removable.
+ * target). A workspace root is never removable.
  *
  * @throws SidebarError with a wire code for containment, existence and
  * root failures.
  */
 export async function removeWorkspaceEntry(input: WorkspaceRemoveInput): Promise<{ path: string }> {
-  const { cwd, path, fence = true } = input
-  const { absolute, real, realCwd } = await resolveEntry(cwd, path, fence)
-  if (real === realCwd) {
+  const { cwd, path, fence = true, workspace } = input
+  const { absolute, real, realCwd } = await resolveEntry(cwd, path, fence, workspace)
+  if (isRootEntry(real, realCwd, workspace)) {
     throw new SidebarError('fs-error', 'cannot remove the workspace root', 400)
   }
   try {
