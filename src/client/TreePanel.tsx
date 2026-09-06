@@ -17,10 +17,11 @@
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type InputHTMLAttributes } from 'react'
 import clsx from 'clsx'
+import { VscCollapseAll } from 'react-icons/vsc'
 import { IconCloseFill14, IconFolderOpen16, IconRefreshOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { api, type WorkspaceViolation } from './api.ts'
 import type { SidebarStore } from './state.ts'
-import { sanitizeWorkspaceState, setWorkspaceState } from './state.ts'
+import { collapseAllDirs, sanitizeWorkspaceState, setWorkspaceState } from './state.ts'
 import { FileTree } from './FileTree.tsx'
 import { IconUploadOutline16 } from './icons.tsx'
 import type { OpenWithTarget } from './open-with.ts'
@@ -273,6 +274,15 @@ export function TreePanel(props: {
           onClick={refreshFiles}
         >
           <IconRefreshOutline16 size={14} />
+        </button>
+        <button
+          type="button"
+          className={css.iconButton}
+          aria-label={t('collapseAll')}
+          title={t('collapseAll')}
+          onClick={() => { store.reduce(s => collapseAllDirs(s)) }}
+        >
+          <VscCollapseAll size={14} />
         </button>
         <button
           type="button"

@@ -481,4 +481,6 @@ export const zhTW: Record<string, string> = {
   workspaceViolationMeta: '{root} \u00b7 {kind}',
   workspaceViolations: '\u552f\u8b80\u8d8a\u6b0a\u5beb\u5165 {n} \u8655',
   workspaceViolationsTitle: '\u6a21\u578b\u5beb\u5165\u552f\u8b80\u8cc7\u6599\u593e\u7684\u8a18\u9304',
+
+  collapseAll: '\u5168\u90e8\u6536\u5408',
 }

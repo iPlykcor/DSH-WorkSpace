@@ -1354,15 +1354,21 @@ function pruneEmptyPanes(node: SplitNode): SplitNode {
   )
 }
 
-/** Apply the active workspace snapshot: roots that exist auto-expand so the
- *  multi-root tree shows its levels without a manual click. null clears it. */
+/** Apply the active workspace snapshot. Roots are NOT auto-expanded: the
+ *  multi-root tree starts with every root header COLLAPSED, and the user
+ *  expands each on demand (a collapse-all button in the tree toolbar resets
+ *  the whole set). Re-applying does not clear expansions the user opened.
+ *  A null snapshot clears the workspace (back to the legacy single root). */
 export function setWorkspaceState(state: SidebarState, workspace: SidebarWorkspaceState | null): SidebarState {
   if (workspace === null) return state.workspace === null ? state : { ...state, workspace: null }
-  const expanded = [...state.expanded]
-  for (const root of workspace.roots) {
-    if (root.exists && !expanded.includes(root.path)) expanded.push(root.path)
-  }
-  return { ...state, workspace, expanded }
+  return { ...state, workspace }
+}
+
+/** One-click "collapse all": drop every expanded directory and reveal
+ *  highlight, so the tree shows only the (collapsed) root headers. */
+export function collapseAllDirs(state: SidebarState): SidebarState {
+  if (state.expanded.length === 0 && state.revealed.length === 0) return state
+  return { ...state, expanded: [], revealed: [] }
 }
 
 /** A persisted (or wire) workspace snapshot may be older/malformed; only a

@@ -466,4 +466,6 @@ export const th: Record<string, string> = {
   workspaceViolationMeta: '{root} \u00b7 {kind}',
   workspaceViolations: '{n} read-only write(s)',
   workspaceViolationsTitle: 'Model writes into read-only folders',
+
+  collapseAll: 'Collapse all',
 }

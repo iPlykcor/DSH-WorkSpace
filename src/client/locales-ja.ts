@@ -230,6 +230,7 @@ export const ja: Record<string, string> = {
   workspaceInvalidManifest: '有効な .dsh-workspace マニフェストではありません',
   workspaceAutoApplyOn: '開くと自動適用',
   workspaceAutoApplyOff: '自動適用しません（「適用」をクリック）',
+  collapseAll: 'すべて折りたたみ',
   uploadDone: '{count} 個のファイルをアップロードしました',
   uploadFailed: 'アップロード失敗：{error}',
   uploadFailedUnknown: '不明なエラー',
