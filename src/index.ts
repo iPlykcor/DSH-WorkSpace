@@ -1,5 +1,5 @@
 /**
- * dsh-better-sidebar host half: the /sidebar JSON API (explorer listing, file
+ * dsh-workspace host half: the /sidebar JSON API (explorer listing, file
  * read/write, git), the /sidebar/file media route (images), the /sidebar/html
  * preview route, the /sidebar/bundle lazy-chunk route (client code splits),
  * and the terminal WebSocket upgrade. Every route passes the same
@@ -64,7 +64,7 @@ import { readJsonBody, requireString, SidebarError, writeError, writeJson, write
 export { Config }
 export type { SidebarConfig, ResolvedSidebarConfig }
 // Re-export the Context augmentation (`declare module '@deepseek-ai/cordis'`)
-// so consumers `import type {} from 'dsh-better-sidebar'` and gain
+// so consumers `import type {} from 'dsh-workspace'` and gain
 // `ctx.betterSidebar`; the Context re-export below is the vendored cordis
 // Context intersected with the structural service faces.
 // Also re-export the service descriptor types so consumers can type their
@@ -80,7 +80,7 @@ export type {
 } from './client/service.ts'
 
 /** Plugin identity for cordis.yml rows. */
-export const name = 'dsh-better-sidebar'
+export const name = 'dsh-workspace'
 
 /** Services required before mounting: the webserver routes, the session store, the web runtime's trusted hosts, and the tool registry. */
 export const inject = ['webServer', 'sessions', 'webRuntime', 'tools']
@@ -851,7 +851,7 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
     const detail = status.ok
       ? 'unknown cause'
       : `${status.cause}. Repair: ${status.command}`
-    ctx.logger?.warn(`[dsh-better-sidebar] node-pty (${DSH_NODE_PTY_RANGE}) failed to load: ${detail}`)
+    ctx.logger?.warn(`[dsh-workspace] node-pty (${DSH_NODE_PTY_RANGE}) failed to load: ${detail}`)
   }
   const ptyManager = nodePty !== null
     ? new PtyManager(terminalShell, resolved.terminalsPerSession, resolved.shellArgs, nodePty)
@@ -907,7 +907,7 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
   }
   ctx.inject(['settings'], (sctx) => {
     // DSH 0.1.2-alpha.2 validates namespaces at compile time
-    // (SettingsNamespaceInput); the 'dsh-better-sidebar' literal passes, so the
+    // (SettingsNamespaceInput); the 'dsh-workspace' literal passes, so the
     // runtime helper this used to call (settingsNamespace) is gone upstream.
     const ns = SIDEBAR_PREFS_NS
     // The structural settings mirror types `schema` as unknown, so the
@@ -1021,7 +1021,7 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
         writeError(res, error)
       }
     },
-  }), 'dsh-better-sidebar: /sidebar/api routes')
+  }), 'dsh-workspace: /sidebar/api routes')
 
   // ── Raw upload route ───────────────────────────────────────────────────
   // One request writes one file without JSON/base64 inflation. Folder uploads
@@ -1064,13 +1064,13 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
         writeError(res, error)
       }
     },
-  }), 'dsh-better-sidebar: /sidebar/upload route')
+  }), 'dsh-workspace: /sidebar/upload route')
 
   // ── Lazy chunk route (client bundle splits) ─────────────────────────────
   // Serves the client half's split bundles (lib/client-<name>.js) so the
   // heavy preview/terminal libraries load on first use, not at page start
   // (see bundle-route.ts / src/client/chunk-loader.ts).
-  ctx.effect(() => registerBundleRoute(ctx, fence), 'dsh-better-sidebar: /sidebar/bundle chunk route')
+  ctx.effect(() => registerBundleRoute(ctx, fence), 'dsh-workspace: /sidebar/bundle chunk route')
 
   // ── Media route (images for the editor) ─────────────────────────────────
   ctx.effect(() => ctx.webServer.register({
@@ -1112,7 +1112,7 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
         writeError(res, error)
       }
     },
-  }), 'dsh-better-sidebar: /sidebar/file media route')
+  }), 'dsh-workspace: /sidebar/file media route')
 
   // ── HTML preview route (sandboxed HTML + its relative assets) ───────────
   // Serves files under the session cwd for the built-in HTML previewer. The
@@ -1174,7 +1174,7 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
         writeError(res, error)
       }
     },
-  }), 'dsh-better-sidebar: /sidebar/html preview route')
+  }), 'dsh-workspace: /sidebar/html preview route')
 
   // ── Terminal WebSocket ──────────────────────────────────────────────────
   // One upgrade endpoint serves both UI-tab terminals (?tab=...) and
@@ -1198,7 +1198,7 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
         void attachTerminal(ctx, ptyManager, agentPtyRegistry, ws, req, resolved, () => settingsFace)
       })
     },
-  }), 'dsh-better-sidebar: terminal WebSocket')
+  }), 'dsh-workspace: terminal WebSocket')
 
   // ── Agent terminals push WebSocket ──────────────────────────────────────
   // Pushes the live list of agent terminals for one session to the sidebar
@@ -1220,7 +1220,7 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
         void attachAgentList(agentPtyRegistry, ws, req)
       })
     },
-  }), 'dsh-better-sidebar: agent-terminals push WebSocket')
+  }), 'dsh-workspace: agent-terminals push WebSocket')
 
   // ── Agent opens push WebSocket ─────────────────────────────────────────
   // Pushes `sidebar_open` requests for one session to the sidebar view: the
@@ -1240,7 +1240,7 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
         void attachAgentOpen(agentOpenRegistry, ws, req)
       })
     },
-  }), 'dsh-better-sidebar: agent-opens push WebSocket')
+  }), 'dsh-workspace: agent-opens push WebSocket')
 
   ctx.effect(() => () => {
     toolsDisposers?.()
@@ -1251,7 +1251,7 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
     wss.close()
     agentListWss.close()
     agentOpenWss.close()
-  }, 'dsh-better-sidebar: teardown')
+  }, 'dsh-workspace: teardown')
 }
 
 /** Push queued `sidebar_open` requests for one session to a connected view. */

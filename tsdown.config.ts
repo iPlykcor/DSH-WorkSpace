@@ -1,15 +1,15 @@
 /**
- * tsdown build for dsh-better-sidebar: the host-half lib (lib/index.js and
+ * tsdown build for dsh-workspace: the host-half lib (lib/index.js and
  * the lib/invariant.js companion, ESM node) plus the two browser client
  * bundles (lib/client.js and lib/client-registry.js, CJS closure factory) —
  * one per install channel:
  *
  * - `lib/client.js` serves the official profile channel, registering with
- *   the package-name id `dsh-better-sidebar` (the client-modules compose
+ *   the package-name id `dsh-workspace` (the client-modules compose
  *   keys on the package name; keep it in sync with package.json `name`),
  * - `lib/client-registry.js` serves the plugin-registry channel
  *   (dsh.plugin.json), registering with the manifest id
- *   `dsh-external/dsh-better-sidebar` (the registry browser-side `arrive()`
+ *   `dsh-external/dsh-workspace` (the registry browser-side `arrive()`
  *   check requires bundle id === plugin id).
  *
  * Both bundles replicate the official DSH client-bundle preset
@@ -119,9 +119,9 @@ function browserSourcePath(source: string, sourcemapPath: string): string {
 /**
  * One client bundle build for a plugin id. The same src/client/index.tsx is
  * compiled twice with only the registered id and the output file name
- * differing: the official channel uses the package name (`dsh-better-sidebar`)
+ * differing: the official channel uses the package name (`dsh-workspace`)
  * and the registry channel uses the manifest id
- * (`dsh-external/dsh-better-sidebar`).
+ * (`dsh-external/dsh-workspace`).
  * @param pluginId - the `__ModuleLoader__.load({ id })` value and the
  *   data-plugin style-tag prefix of this bundle.
  * @param entryFile - the output file name under lib/.
@@ -186,7 +186,7 @@ function clientBundle(pluginId: string, entryFile: string): UserConfig {
  * loader (src/client/chunk-loader.ts) materializes it with a require built
  * from the module table's seed words.
  *
- * Chunk css tags use the constant plugin id `dsh-better-sidebar` (matching
+ * Chunk css tags use the constant plugin id `dsh-workspace` (matching
  * the official channel; the registry channel re-injects an identical copy
  * of the shared module css — same content, no functional impact).
  * @param name - chunk name; entry src/client/chunks/<name>.tsx, output
@@ -216,7 +216,7 @@ function chunkBundle(name: string): UserConfig {
     noExternal: (id: string) => (CLIENT_EXTERNALS.includes(id) ? undefined : true),
     plugins: [
       purityGatePlugin(),
-      makeCssPlugin('dsh-better-sidebar'),
+      makeCssPlugin('dsh-workspace'),
       ...(name === 'mermaid' ? [mermaidChunkAliases()] : []),
     ],
     outputOptions: {

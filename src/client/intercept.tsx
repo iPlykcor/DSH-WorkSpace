@@ -145,7 +145,7 @@ export function registerTurnTailInterception(ctx: Context, store: SidebarStore):
       return matched
     },
     priority: -1,
-    registrant: 'dsh-better-sidebar',
+    registrant: 'dsh-workspace',
     inject: (sessionId: string) => ({
       openInSidebar: (path: string) => { openSidebarFile(ctx, store, sessionId, path) },
       onShowInFolder: (files: readonly string[]) => { revealInExplorer(ctx, store, sessionId, files) },
@@ -183,7 +183,7 @@ export function registerOpenPathInterception(ctx: Context, store: SidebarStore):
         openInSidebar: (path, sessionId) => { openSidebarFile(ctx, store, sessionId, path) },
         revealInExplorer: (_path, sessionId) => { revealInExplorer(ctx, store, sessionId, lastProduced) },
       })
-    }, 'dsh-better-sidebar: open-path interception wrap')
+    }, 'dsh-workspace: open-path interception wrap')
   })
   return () => { void fiber.dispose() }
 }

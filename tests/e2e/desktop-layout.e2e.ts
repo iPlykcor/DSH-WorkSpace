@@ -68,7 +68,7 @@ test('right panel keeps desktop session actions in their header positions', asyn
   const root = page.locator('#root')
   const frame = page.locator('#root [data-dsh-frame], #root > [data-slot="root"] > div').first()
   const appSidebarExpanded = root.getByRole('button', { name: /^(Collapse sidebar|收起侧边栏)$/ })
-  const sidebar = page.locator('[data-dsh-better-sidebar]')
+  const sidebar = page.locator('[data-dsh-workspace]')
   const sessionLog = page.getByRole('button', { name: 'Session log', exact: true })
   const sessionLogLabel = sessionLog.getByText('Session log', { exact: true })
   await expect(sessionLogLabel, 'the desktop session-log action starts as a text button').toBeVisible({ timeout: 30_000 })

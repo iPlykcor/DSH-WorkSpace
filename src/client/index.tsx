@@ -1,5 +1,5 @@
 /**
- * Client half of dsh-better-sidebar: resolves the user's "Side card"
+ * Client half of dsh-workspace: resolves the user's "Side card"
  * preferences through the plugin's own fenced settings route, mounts the
  * right sidebar portal (inside an error boundary so a rendering failure
  * shows an error strip instead of a blank panel), registers the turn-tail
@@ -62,7 +62,7 @@ export function apply(ctx: Context): void {
     const offZh = ctx.locale.register(LOCALE_NS, 'zh', zh)
     const offEn = ctx.locale.register(LOCALE_NS, 'en', en)
     return () => { offZh(); offEn() }
-  }, 'dsh-better-sidebar: dictionaries')
+  }, 'dsh-workspace: dictionaries')
 
   // Opt-in third-language support through @huanlin/dsh-plugin-better-locale.
   // When that plugin is installed, it publishes `ctx.betterLocale` (the
@@ -126,7 +126,7 @@ export function apply(ctx: Context): void {
       dispose?.()
       attachBetterLocale(undefined)
     }
-  }, 'dsh-better-sidebar: better-locale lazy integration')
+  }, 'dsh-workspace: better-locale lazy integration')
   // One store instance per activation: production code creates it only here,
   // then hands it to the mounted panel and closes over it in the slot
   // registrations (the official createXXXStore() factory rule — no
@@ -163,7 +163,7 @@ export function apply(ctx: Context): void {
   // fiber disposal (HMR-safe).
   ctx.effect(
     () => registerBuiltins(ctx, service, { terminalTitle: () => terminalTitle }),
-    'dsh-better-sidebar: register built-in tabs and viewers',
+    'dsh-workspace: register built-in tabs and viewers',
   )
   // A failure anywhere in the client lifecycle must never take the app down
   // silently: log with the plugin prefix and pin a visible diagnostic strip
@@ -174,7 +174,7 @@ export function apply(ctx: Context): void {
   // byte-identical to the old hardcoded bar, and any `--dsw-alias-*` skin
   // re-themes it (guide §12: no hardcoded colors).
   const fail = (phase: string, error: unknown): void => {
-    console.error(`[dsh-better-sidebar] ${phase} error:`, error)
+    console.error(`[dsh-workspace] ${phase} error:`, error)
     try {
       const bar = document.createElement('div')
       bar.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:2147483000;max-width:70vw;padding:8px 12px;'
@@ -182,7 +182,7 @@ export function apply(ctx: Context): void {
         + 'color:var(--dsw-alias-state-error-primary,#f2a1a1);'
         + 'background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-base,#1b1b22));'
         + 'border:1px solid var(--dsw-alias-state-error-primary,#f2a1a1);border-radius:8px;white-space:pre-wrap'
-      bar.textContent = `[dsh-better-sidebar] ${phase} error: ${error instanceof Error ? error.message : String(error)}`
+      bar.textContent = `[dsh-workspace] ${phase} error: ${error instanceof Error ? error.message : String(error)}`
       document.body.appendChild(bar)
     } catch {
       // Nothing left to report with.
@@ -251,7 +251,7 @@ export function apply(ctx: Context): void {
             return
           }
           layer.setAttribute('data-dsh-panel-host-degraded', '')
-          console.warn('[dsh-better-sidebar] panel host geometry mismatch — a page-level transform was detected; using degraded viewport sync')
+          console.warn('[dsh-workspace] panel host geometry mismatch — a page-level transform was detected; using degraded viewport sync')
           // Track our own compensating translation so the loop judges the
           // UNCORRECTED geometry: clearing degraded mode must wait for the
           // ancestor transform to actually disappear — the frame right after
@@ -282,7 +282,7 @@ export function apply(ctx: Context): void {
         if (mounted || disposed) return
         try {
           host = document.createElement('div')
-          host.setAttribute('data-dsh-better-sidebar', '')
+          host.setAttribute('data-dsh-workspace', '')
           document.body.appendChild(host)
           root = createRoot(host)
           root.render(createElement(RenderBoundary, { className: css.boundaryError }, createElement(Sidebar, { ctx, store: sidebarStore })))
@@ -329,7 +329,7 @@ export function apply(ctx: Context): void {
         offRemote?.()
         unmount()
       }
-    }, 'dsh-better-sidebar: sidebar mount')
+    }, 'dsh-workspace: sidebar mount')
 
     ctx.effect(
       () => {
@@ -340,7 +340,7 @@ export function apply(ctx: Context): void {
           return () => {}
         }
       },
-      'dsh-better-sidebar: turn-tail interception',
+      'dsh-workspace: turn-tail interception',
     )
 
     ctx.effect(
@@ -352,7 +352,7 @@ export function apply(ctx: Context): void {
           return () => {}
         }
       },
-      'dsh-better-sidebar: open-path interception',
+      'dsh-workspace: open-path interception',
     )
 
     ctx.effect(
@@ -396,7 +396,7 @@ export function apply(ctx: Context): void {
           return () => {}
         }
       },
-      'dsh-better-sidebar: link interception',
+      'dsh-workspace: link interception',
     )
 
     // The IME guard: composition keys (candidate arrows, confirm, cancel)
@@ -416,7 +416,7 @@ export function apply(ctx: Context): void {
           return () => {}
         }
       },
-      'dsh-better-sidebar: IME composition guard',
+      'dsh-workspace: IME composition guard',
     )
 
     // DSH 0.1.x does not yet carry an icon through the settings.section
@@ -426,7 +426,7 @@ export function apply(ctx: Context): void {
     // the marker for HMR / plugin disable.
     ctx.effect(
       () => registerSettingsNavIcon(() => t('settingsNav')),
-      'dsh-better-sidebar: settings navigation icon',
+      'dsh-workspace: settings navigation icon',
     )
 
     // The "Side card" settings section: appears in the DSH Settings shell

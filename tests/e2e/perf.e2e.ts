@@ -5,7 +5,7 @@
  * It exists to put NUMBERS on the sidebar's client-side cost in a real
  * mounted `dsh web` (the same scratch-profile boot as scripts/e2e-mount.sh):
  *
- *   1. mount latency  — navigationStart → `[data-dsh-better-sidebar]`
+ *   1. mount latency  — navigationStart → `[data-dsh-workspace]`
  *      attached, sampled by an init-script probe (rAF loop, so it catches
  *      the attach even before Playwright's first poll);
  *   2. longtasks      — every >50ms main-thread task from first paint
@@ -62,7 +62,7 @@ const PERF_PROBE = `(() => {
     for (const entry of list.getEntries()) perf.longtasks.push({ start: entry.startTime, duration: entry.duration })
   }).observe({ entryTypes: ['longtask'] })
   const check = () => {
-    if (document.querySelector('[data-dsh-better-sidebar]') !== null) { perf.mountAt = performance.now(); return }
+    if (document.querySelector('[data-dsh-workspace]') !== null) { perf.mountAt = performance.now(); return }
     requestAnimationFrame(check)
   }
   requestAnimationFrame(check)
@@ -113,7 +113,7 @@ test('measure: mount latency, longtasks and bundle cost through a full tab sweep
   await page.addInitScript(PERF_PROBE)
   await page.goto(PAGE_URL, { waitUntil: 'domcontentloaded' })
   await expect(page.locator('#root > *')).not.toHaveCount(0, { timeout: 90_000 })
-  const sidebar = page.locator('[data-dsh-better-sidebar]')
+  const sidebar = page.locator('[data-dsh-workspace]')
   await expect(sidebar).toBeAttached({ timeout: 90_000 })
 
   const mountLatency = await page.evaluate(() =>
@@ -183,7 +183,7 @@ test('measure: bottom-strip drag frame pacing', async ({ page }) => {
   await page.addInitScript(PERF_PROBE)
   await page.goto(PAGE_URL, { waitUntil: 'domcontentloaded' })
   await expect(page.locator('#root > *')).not.toHaveCount(0, { timeout: 90_000 })
-  const sidebar = page.locator('[data-dsh-better-sidebar]')
+  const sidebar = page.locator('[data-dsh-workspace]')
   await expect(sidebar).toBeAttached({ timeout: 90_000 })
   await dismissOnboarding(page)
 
@@ -221,7 +221,7 @@ test('measure: bottom-strip drag frame pacing', async ({ page }) => {
   await expect
     .poll(async () => {
       const probe = await page.evaluate(() => {
-        const bottom = document.querySelector('[data-dsh-better-sidebar] [data-dsh-bottom-panel]')
+        const bottom = document.querySelector('[data-dsh-workspace] [data-dsh-bottom-panel]')
         if (bottom === null) return null
         const strip = [...bottom.querySelectorAll<HTMLElement>('*')].find(el => getComputedStyle(el).cursor === 'row-resize')
         if (strip === undefined) return null
@@ -233,7 +233,7 @@ test('measure: bottom-strip drag frame pacing', async ({ page }) => {
     }, { timeout: 30_000 })
     .toBeLessThanOrEqual(8)
   const stripPoint = await page.evaluate(() => {
-    const bottom = document.querySelector('[data-dsh-better-sidebar] [data-dsh-bottom-panel]')
+    const bottom = document.querySelector('[data-dsh-workspace] [data-dsh-bottom-panel]')
     if (bottom === null) return null
     const strip = [...bottom.querySelectorAll<HTMLElement>('*')].find(el => getComputedStyle(el).cursor === 'row-resize')
     if (strip === undefined) return null

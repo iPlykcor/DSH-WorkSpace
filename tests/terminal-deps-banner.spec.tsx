@@ -25,7 +25,7 @@ setupReactAct()
 const deps = {
   ok: false as const,
   cause: 'Cannot find package node-pty',
-  command: 'bash "/Users/u/.dsh/profiles/web/node_modules/.pnpm/dsh-better-sidebar@0.0.0/node_modules/dsh-better-sidebar/scripts/install.sh" --repair --profile "web"',
+  command: 'bash "/Users/u/.dsh/profiles/web/node_modules/.pnpm/dsh-workspace@0.0.0/node_modules/dsh-workspace/scripts/install.sh" --repair --profile "web"',
   profile: 'web',
 }
 

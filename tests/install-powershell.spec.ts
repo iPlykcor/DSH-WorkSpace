@@ -60,7 +60,7 @@ function assertInMemoryInvocation(executable: string): void {
   const output = `${result.stdout}\n${result.stderr}`
 
   expect(result.status, output).toBe(0)
-  expect(output).toContain('dsh-better-sidebar@0.11.0')
+  expect(output).toContain('dsh-workspace@0.11.0')
   expect(output).toContain('[dry-run]')
   expect(output).not.toContain('False False')
 }
@@ -118,7 +118,7 @@ describe('PowerShell installer entry points', () => {
     const output = `${result.stdout}\n${result.stderr}`
 
     expect(result.status, output).toBe(0)
-    expect(output).toContain('dsh-better-sidebar@0.11.0')
+    expect(output).toContain('dsh-workspace@0.11.0')
     expect(output).toContain('[dry-run]')
   })
 

@@ -373,7 +373,7 @@ function threadLog(): Array<ReturnType<typeof ev>> {
     ev('turn/end', 1, { turn: 0, reason: { kind: 'completed' } }),
     ev('session/end-seed', 2),
     ev('subagent/descriptor', 3, { mode: 'continuable' }),
-    ev('user/message', 4, { content: [{ type: 'text', text: 'Side conversation boundary.' }], source: { kind: 'plugin', plugin: 'dsh-better-sidebar' } }),
+    ev('user/message', 4, { content: [{ type: 'text', text: 'Side conversation boundary.' }], source: { kind: 'plugin', plugin: 'dsh-workspace' } }),
     ev('user/message', 5, { content: [{ type: 'text', text: 'the side question' }], source: { kind: 'user' } }),
     ev('assistant/chunk', 6, { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'an' } }),
     ev('assistant/chunk', 7, { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'swer' } }),

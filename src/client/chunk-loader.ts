@@ -153,7 +153,7 @@ const defaultScriptLoader: ChunkScriptLoader = (src) => new Promise((resolve, re
   }, { once: true })
   el.addEventListener('error', () => {
     el.remove()
-    reject(new Error(`[dsh-better-sidebar] chunk script ${src} failed to load`))
+    reject(new Error(`[dsh-workspace] chunk script ${src} failed to load`))
   }, { once: true })
   document.head.append(el)
 })
@@ -191,7 +191,7 @@ async function buildExternalsRequire(modules: ChunkModuleSystem): Promise<(spec:
     if (!table.has(spec)) {
       // Single quotes: the bundle-consistency scan regexes for require("...")
       // lexical calls — a double-quoted literal here would trip it.
-      throw new Error(`[dsh-better-sidebar] chunk require('${spec}') missed the module table`)
+      throw new Error(`[dsh-workspace] chunk require('${spec}') missed the module table`)
     }
     return table.get(spec)
   }
@@ -248,12 +248,12 @@ export async function loadChunk(name: ChunkName): Promise<ChunkExports> {
     if (test !== undefined) return test()
     const modules = moduleSystem()
     if (modules === undefined) {
-      throw new Error(`[dsh-better-sidebar] chunk "${name}": client module system unavailable`)
+      throw new Error(`[dsh-workspace] chunk "${name}": client module system unavailable`)
     }
     await scriptLoader(CHUNK_URL(name))
     const factory = chunkRegistry()[name]
     if (typeof factory !== 'function') {
-      throw new Error(`[dsh-better-sidebar] chunk "${name}" script did not register its factory`)
+      throw new Error(`[dsh-workspace] chunk "${name}" script did not register its factory`)
     }
     const require = await buildExternalsRequire(modules)
     const exports = factory(require)

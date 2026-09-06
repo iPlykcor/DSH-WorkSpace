@@ -8,7 +8,7 @@
  *
  * Mirrors the "external consumer" fixture: what is importable here from
  * `../src/client/service.ts` must also be importable from
- * `dsh-better-sidebar/client/service` in the built package.
+ * `dsh-workspace/client/service` in the built package.
  */
 import type {} from '../src/client/service.ts'
 import {

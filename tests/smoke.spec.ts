@@ -388,9 +388,9 @@ describe('host plugin smoke', () => {
  */
 describe('git destructive operations (scratch repository)', () => {
   const FIXTURE_IDENTITY = {
-    GIT_AUTHOR_NAME: 'dsh-better-sidebar-test',
+    GIT_AUTHOR_NAME: 'dsh-workspace-test',
     GIT_AUTHOR_EMAIL: 'test@dsh.invalid',
-    GIT_COMMITTER_NAME: 'dsh-better-sidebar-test',
+    GIT_COMMITTER_NAME: 'dsh-workspace-test',
     GIT_COMMITTER_EMAIL: 'test@dsh.invalid',
   }
 

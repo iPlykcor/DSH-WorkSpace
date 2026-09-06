@@ -10,7 +10,7 @@
  *     (the same `workspace.create` / `session.create` calls the UI makes),
  *     so the sidebar has a real session to render;
  *  2. loads the page in headless Chromium and asserts the shell and the
- *     plugin's `[data-dsh-better-sidebar]` host mount;
+ *     plugin's `[data-dsh-workspace]` host mount;
  *  3. asserts the plugin's crash markers never appear (no RenderBoundary /
  *     fail() strips, no `pageerror`, no plugin-prefixed console errors);
  *  4. expands the collapsed panel (openByDefault defaults off), sweeps every
@@ -54,7 +54,7 @@ const SEEDED_README_FILE = 'readme-style.md'
  * renders a strip whose text starts with these prefixes instead of crashing
  * (see src/client/index.tsx `fail()` and src/client/RenderBoundary.tsx).
  */
-const CRASH_STRIP_PATTERNS = [/^dsh-better-sidebar:/, /^\[dsh-better-sidebar\]/]
+const CRASH_STRIP_PATTERNS = [/^dsh-workspace:/, /^\[dsh-workspace\]/]
 
 /** Built-in tab titles the sweep drives (en-US copy; follows DSH locale). */
 const BUILTIN_TABS = ['Files', 'Changes', 'Tasks', 'Side Chat (beta)', 'Terminal', 'Browser']
@@ -150,7 +150,7 @@ test('plugin mounts into the DSH shell and survives a built-in tab sweep', async
   })
 
   // Load the shell. The app renders into #root; the plugin appends its own
-  // [data-dsh-better-sidebar] host once its client half activates.
+  // [data-dsh-workspace] host once its client half activates.
   //
   // The editor chunk (client-editor.js) loads as soon as ANY files-window tab
   // renders — the seeded home tab mounts the moment the panel expands, long
@@ -162,7 +162,7 @@ test('plugin mounts into the DSH shell and survives a built-in tab sweep', async
   )
   await page.goto(PAGE_URL, { waitUntil: 'domcontentloaded' })
   await expect(page.locator('#root > *')).not.toHaveCount(0, { timeout: 90_000 })
-  const sidebar = page.locator('[data-dsh-better-sidebar]')
+  const sidebar = page.locator('[data-dsh-workspace]')
   await expect(sidebar).toBeAttached({ timeout: 90_000 })
   // The unified panel host: the fixed containing block every panel lives in
   // (data-dsh-panel-host). Its presence is part of the injection contract.
@@ -265,7 +265,7 @@ test('plugin mounts into the DSH shell and survives a built-in tab sweep', async
       }).map((node) => (node.textContent ?? '').trim()),
       CRASH_STRIP_PATTERNS,
     )
-    expect(stripTexts, 'a dsh-better-sidebar error strip is present in the sidebar').toEqual([])
+    expect(stripTexts, 'a dsh-workspace error strip is present in the sidebar').toEqual([])
   }
 
   // Sweep every built-in tab through the "+" menu (the sidebar's own open-tab
@@ -436,7 +436,7 @@ test('plugin mounts into the DSH shell and survives a built-in tab sweep', async
   ).toHaveCount(1, { timeout: 30_000 })
   // The markdown PREVIEW must render before the mermaid chunk can be
   // requested — this assertion separates a preview/render regression from a
-  // chunk-loading one. (sidebar is already scoped to [data-dsh-better-sidebar].)
+  // chunk-loading one. (sidebar is already scoped to [data-dsh-workspace].)
   await expect(
     sidebar.getByText('tail text'),
     'the markdown preview must render the seeded document',
@@ -547,7 +547,7 @@ test('plugin mounts into the DSH shell and survives a built-in tab sweep', async
 
   // The plugin's own console prefix must never appear in errors, and no
   // unhandled rejection may escape the sweep.
-  const pluginErrors = consoleErrors.filter((text) => /dsh-better-sidebar|Unhandled/.test(text))
+  const pluginErrors = consoleErrors.filter((text) => /dsh-workspace|Unhandled/.test(text))
   expect(pluginErrors, 'plugin-prefixed or unhandled console errors during the sweep').toEqual([])
   expect(pageErrors, 'pageerrors during the sweep').toEqual([])
 
@@ -563,7 +563,7 @@ test('conservative auto: URL stamps alone never modify the layout; plugin chrome
   // semantics) — the strip/body attribute appear only for real standard
   // geometry (see the WCO scenario below) or an opt-in preset.
   await gotoPage(page, { 'dsh-desktop-mode': 'advanced', 'dsh-desktop-platform': 'win32' })
-  await expect(page.locator('[data-dsh-better-sidebar]')).toBeAttached({ timeout: 90_000 })
+  await expect(page.locator('[data-dsh-workspace]')).toBeAttached({ timeout: 90_000 })
   await expect(
     page.locator('body[data-dsh-title-bar-compat]'),
     'stamps alone must NOT auto-enable title-bar compatibility under auto',
@@ -611,7 +611,7 @@ test('standard WCO geometry drives the strip reactively (issue #257)', async ({ 
     }
   })
   await page.goto(PAGE_URL, { waitUntil: 'domcontentloaded' })
-  await expect(page.locator('[data-dsh-better-sidebar]')).toBeAttached({ timeout: 90_000 })
+  await expect(page.locator('[data-dsh-workspace]')).toBeAttached({ timeout: 90_000 })
   // Real reported height (36px, not a hardcoded 32) drives the strip.
   await expect(page.locator('body[data-dsh-title-bar-compat]')).toBeAttached({ timeout: 90_000 })
   await expect
@@ -638,7 +638,7 @@ test('opt-in shell preset applies its strip when WCO is absent (data-driven, man
   expect(update.ok(), `settings.update: ${update.status()}`).toBe(true)
   try {
     await gotoPage(page, { 'dsh-desktop-mode': 'advanced', 'dsh-desktop-platform': 'win32' })
-    await expect(page.locator('[data-dsh-better-sidebar]')).toBeAttached({ timeout: 90_000 })
+    await expect(page.locator('[data-dsh-workspace]')).toBeAttached({ timeout: 90_000 })
     await expect(page.locator('body[data-dsh-title-bar-compat]')).toBeAttached({ timeout: 90_000 })
     await expect
       .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--dsh-title-bar-strip')))
@@ -663,7 +663,7 @@ test('custom scheme injects the user stylesheet live', async ({ request, page })
   expect(update.ok(), `settings.update: ${update.status()}`).toBe(true)
   try {
     await page.goto(PAGE_URL, { waitUntil: 'domcontentloaded' })
-    await expect(page.locator('[data-dsh-better-sidebar]')).toBeAttached({ timeout: 90_000 })
+    await expect(page.locator('[data-dsh-workspace]')).toBeAttached({ timeout: 90_000 })
     await expect(page.locator('style[data-dsh-custom-css="custom"]')).toBeAttached()
     // The injected CSS is live (a custom property the page can read back).
     const marker = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--dsh-e2e-marker').trim())

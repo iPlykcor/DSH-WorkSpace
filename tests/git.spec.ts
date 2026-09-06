@@ -20,7 +20,7 @@ const canonical = (path: string): string => normalizePath(realpathSync.native(pa
 
 describe('git parsing', () => {
   it('discovers and selects direct child repositories under a workspace directory', async () => {
-    const workspace = await mkdtemp(join(tmpdir(), 'dsh-better-sidebar-git-'))
+    const workspace = await mkdtemp(join(tmpdir(), 'dsh-workspace-git-'))
     const first = join(workspace, 'first-repo')
     const second = join(workspace, 'second-repo')
     try {

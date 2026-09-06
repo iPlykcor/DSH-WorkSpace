@@ -170,12 +170,12 @@ export function appendToDraft(ctx: Context, sessionId: string, text: string): bo
   try {
     const actx = ctx.sessions.scope(sessionId)
     if (actx === undefined) {
-      console.warn('[dsh-better-sidebar] draft insert skipped: no session scope', sessionId)
+      console.warn('[dsh-workspace] draft insert skipped: no session scope', sessionId)
       return false
     }
     const conversation = ctx.get('conversation') as SidebarConversation | undefined
     if (conversation === undefined) {
-      console.warn('[dsh-better-sidebar] draft insert skipped: conversation service unavailable')
+      console.warn('[dsh-workspace] draft insert skipped: conversation service unavailable')
       return false
     }
     const input = conversation.input.for(actx)
@@ -189,7 +189,7 @@ export function appendToDraft(ctx: Context, sessionId: string, text: string): bo
     placeComposerCaretAfterInsert(next, caretAfter)
     return true
   } catch (error) {
-    console.warn('[dsh-better-sidebar] draft insert failed:', error)
+    console.warn('[dsh-workspace] draft insert failed:', error)
     return false
   }
 }
@@ -250,7 +250,7 @@ export function insertFileReference(ctx: Context, sessionId: string, relativePat
     const after = input.state.getSnapshot()
     return after.draftRev !== before.draftRev
   } catch (error) {
-    console.warn('[dsh-better-sidebar] file-reference insert failed:', error)
+    console.warn('[dsh-workspace] file-reference insert failed:', error)
     return false
   }
 }

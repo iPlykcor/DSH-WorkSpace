@@ -31,25 +31,25 @@ export const builtinTabPlugins: readonly PluginEntry[] = [
     description: () => t('pluginEgoBrowserDesc'),
     // Registers a sidebar tab for the agent browser; optional peer of
     // better-sidebar (auto-tab when present, floating bubble when not).
-    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-better-sidebar && dsh plugin --profile web add git+https://github.com/Fisfzy/ego-browser.git',
+    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-workspace && dsh plugin --profile web add git+https://github.com/Fisfzy/ego-browser.git',
   },
   {
     id: 'dsh-better-overleaf',
     name: () => t('pluginBetterOverleafName'),
     url: 'https://github.com/Hoemr/dsh-better-overleaf',
     description: () => t('pluginBetterOverleafDesc'),
-    // Published on npm; peer-depends on dsh-better-sidebar (Overleaf tab),
+    // Published on npm; peer-depends on dsh-workspace (Overleaf tab),
     // so the install line installs the prerequisite first.
-    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-better-sidebar && dsh plugin --profile web add dsh-better-overleaf',
+    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-workspace && dsh plugin --profile web add dsh-better-overleaf',
   },
   {
     id: 'dsh-docs-panel',
     name: () => t('pluginDocsPanelName'),
     url: 'https://github.com/mlosun/dsh-docs-panel',
     description: () => t('pluginDocsPanelDesc'),
-    // dsh-docs-panel hard-depends on dsh-better-sidebar (required peer), so
+    // dsh-docs-panel hard-depends on dsh-workspace (required peer), so
     // the install line installs the prerequisite first, then the plugin.
-    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-better-sidebar && dsh plugin --profile web add dsh-docs-panel',
+    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-workspace && dsh plugin --profile web add dsh-docs-panel',
   },
   {
     id: 'dsh-flowglass',
@@ -58,23 +58,23 @@ export const builtinTabPlugins: readonly PluginEntry[] = [
     description: () => t('pluginFlowglassDesc'),
     // Flowglass keeps its standalone drawer as a fallback and registers the
     // native tab automatically when better-sidebar is present.
-    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-better-sidebar && dsh plugin --profile web add dsh-flowglass',
+    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-workspace && dsh plugin --profile web add dsh-flowglass',
   },
   {
     id: 'dsh-git-forge',
     name: () => t('pluginGitForgeName'),
     url: 'https://github.com/thirsty5034/dsh-git-forge',
     description: () => t('pluginGitForgeDesc'),
-    // Peer-depends on dsh-better-sidebar (Git Forge tab). Install the
+    // Peer-depends on dsh-workspace (Git Forge tab). Install the
     // prerequisite first; package is GitHub-sourced until npm publish.
-    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-better-sidebar && dsh plugin --profile web add "dsh-git-forge@github:thirsty5034/dsh-git-forge"',
+    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-workspace && dsh plugin --profile web add "dsh-git-forge@github:thirsty5034/dsh-git-forge"',
   },
   {
     id: 'dsh-git-remotes',
     name: () => t('pluginGitRemotesName'),
     url: 'https://github.com/yq04/dsh-git-remotes',
     description: () => t('pluginGitRemotesDesc'),
-    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-better-sidebar && dsh plugin --profile web add git+https://github.com/yq04/dsh-git-remotes.git',
+    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-workspace && dsh plugin --profile web add git+https://github.com/yq04/dsh-git-remotes.git',
   },
   {
     id: 'dsh-github-workbench',
@@ -91,18 +91,18 @@ export const builtinTabPlugins: readonly PluginEntry[] = [
     name: () => t('pluginSidebarQaName'),
     url: 'https://github.com/ChenRuoT/dsh-sidebar-qa',
     description: () => t('pluginSidebarQaDesc'),
-    // dsh-sidebar-qa hard-depends on dsh-better-sidebar (required peer), so
+    // dsh-sidebar-qa hard-depends on dsh-workspace (required peer), so
     // the install line installs the prerequisite first, then the plugin.
-    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-better-sidebar && dsh plugin --profile web add git+https://github.com/ChenRuoT/dsh-sidebar-qa.git',
+    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-workspace && dsh plugin --profile web add git+https://github.com/ChenRuoT/dsh-sidebar-qa.git',
   },
   {
     id: 'dsh-sidenote',
     name: () => t('pluginSidenoteName'),
     url: 'https://github.com/g-yixuan/dsh-sidenote',
     description: () => t('pluginSidenoteDesc'),
-    // dsh-sidenote hard-depends on dsh-better-sidebar (required peer), so
+    // dsh-sidenote hard-depends on dsh-workspace (required peer), so
     // the install line installs the prerequisite first, then the plugin.
-    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-better-sidebar && dsh plugin --profile web add dsh-sidenote',
+    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-workspace && dsh plugin --profile web add dsh-sidenote',
   },
   {
     id: 'dsh-server-deck',
@@ -112,7 +112,7 @@ export const builtinTabPlugins: readonly PluginEntry[] = [
     // Published on npm; dual-mount like flowglass — registers the native
     // "Servers" tab when better-sidebar is present, standalone drawer
     // otherwise. Install the prerequisite first.
-    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-better-sidebar && dsh plugin --profile web add dsh-server-deck@latest',
+    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-workspace && dsh plugin --profile web add dsh-server-deck@latest',
   },
   {
     id: 'dsh-suhuang-scroll',
@@ -121,24 +121,24 @@ export const builtinTabPlugins: readonly PluginEntry[] = [
     description: () => t('pluginSuhuangScrollDesc'),
     // Suhuang Scroll is a DSH Web plugin whose runtime console registers in
     // better-sidebar. Install the sidebar prerequisite before the npm package.
-    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-better-sidebar && dsh plugin --profile web add dsh-suhuang-scroll',
+    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-workspace && dsh plugin --profile web add dsh-suhuang-scroll',
   },
   {
     id: 'dsh-ssh-tunnel',
     name: () => t('pluginSshTunnelName'),
     url: 'https://github.com/thirsty5034/dsh-ssh-tunnel',
     description: () => t('pluginSshTunnelDesc'),
-    // Peer-depends on dsh-better-sidebar (SSH Tunnel tab + center terminal/SFTP).
+    // Peer-depends on dsh-workspace (SSH Tunnel tab + center terminal/SFTP).
     // Install the prerequisite first; package is GitHub-sourced until npm publish.
-    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-better-sidebar && dsh plugin --profile web add "dsh-ssh-tunnel@github:thirsty5034/dsh-ssh-tunnel"',
+    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-workspace && dsh plugin --profile web add "dsh-ssh-tunnel@github:thirsty5034/dsh-ssh-tunnel"',
   },
   {
     id: 'dsh-turn-review',
     name: () => t('pluginTurnReviewName'),
     url: 'https://github.com/yq04/dsh-turn-review',
     description: () => t('pluginTurnReviewDesc'),
-    // Needs dsh-better-sidebar (optional peer) for the tab; no model tools.
-    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-better-sidebar && dsh plugin --profile web add git+https://github.com/yq04/dsh-turn-review.git',
+    // Needs dsh-workspace (optional peer) for the tab; no model tools.
+    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-workspace && dsh plugin --profile web add git+https://github.com/yq04/dsh-turn-review.git',
   },
   {
     id: 'dsh-bilingual-reader',
@@ -148,6 +148,6 @@ export const builtinTabPlugins: readonly PluginEntry[] = [
     // Bilingual paper reading: a native-PDF tab with LLM selection translation,
     // isolated from the main conversation context. Hard-depends on the
     // better-sidebar tab service, so install the prerequisite first.
-    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-better-sidebar && dsh plugin --profile web add github:Johnblur/dsh-bilingual-reader',
+    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-workspace && dsh plugin --profile web add github:Johnblur/dsh-bilingual-reader',
   },
 ]

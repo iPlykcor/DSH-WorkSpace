@@ -217,7 +217,7 @@ export function languageForPath(path: string): Language | LanguageSupport | null
     return FACTORIES[key]!()
   } catch (error) {
     // A broken factory degrades to plain text, never crashes the editor.
-    console.warn(`[dsh-better-sidebar] language factory "${key}" failed:`, error)
+    console.warn(`[dsh-workspace] language factory "${key}" failed:`, error)
     return null
   }
 }

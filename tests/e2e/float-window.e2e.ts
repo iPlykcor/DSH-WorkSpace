@@ -13,7 +13,7 @@
  *     floats another tab with the hint overlay showing mid-drag.
  *
  * Crash discipline mirrors the mount lane: pageerror / plugin console errors
- * / dsh-better-sidebar strips fail the test at every step.
+ * / dsh-workspace strips fail the test at every step.
  */
 import { mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -23,7 +23,7 @@ import { PAGE_URL, createHostApi, hostRpc } from './host'
 
 const WORKSPACE_PATH = process.env.DSH_E2E_WORKSPACE ?? join(tmpdir(), 'dsh-e2e-float-workspace')
 
-const CRASH_STRIP_PATTERNS = [/^dsh-better-sidebar:/, /^\[dsh-better-sidebar\]/]
+const CRASH_STRIP_PATTERNS = [/^dsh-workspace:/, /^\[dsh-workspace\]/]
 
 let api: APIRequestContext
 
@@ -84,7 +84,7 @@ const bootExpanded = async (page: Page): Promise<ReturnType<Page['locator']>> =>
   })
   await page.goto(PAGE_URL, { waitUntil: 'domcontentloaded' })
   await expect(page.locator('#root > *')).not.toHaveCount(0, { timeout: 90_000 })
-  const sidebar = page.locator('[data-dsh-better-sidebar]')
+  const sidebar = page.locator('[data-dsh-workspace]')
   await expect(sidebar).toBeAttached({ timeout: 90_000 })
   await dismissTakeovers(page)
   await expect(sidebar.locator('[title]').first()).toBeAttached({ timeout: 90_000 })
@@ -96,13 +96,13 @@ const bootExpanded = async (page: Page): Promise<ReturnType<Page['locator']>> =>
     ), { timeout: 90_000 })
     .not.toBe('')
   expect(pageErrors, 'page errors during boot').toEqual([])
-  expect(consoleErrors.filter(text => text.includes('dsh-better-sidebar')), 'plugin console errors during boot').toEqual([])
+  expect(consoleErrors.filter(text => text.includes('dsh-workspace')), 'plugin console errors during boot').toEqual([])
   return sidebar
 }
 
 /** The crash assertions shared by every step (mount-lane discipline). */
 async function assertNoCrash(page: Page): Promise<void> {
-  const sidebar = page.locator('[data-dsh-better-sidebar]')
+  const sidebar = page.locator('[data-dsh-workspace]')
   const stripTexts = await sidebar.locator('div').evaluateAll(
     (nodes, patterns) => nodes.filter((node) => {
       const text = (node.textContent ?? '').trim()
@@ -110,7 +110,7 @@ async function assertNoCrash(page: Page): Promise<void> {
     }).map((node) => (node.textContent ?? '').trim()),
     CRASH_STRIP_PATTERNS,
   )
-  expect(stripTexts, 'a dsh-better-sidebar error strip is present').toEqual([])
+  expect(stripTexts, 'a dsh-workspace error strip is present').toEqual([])
 }
 
 /** The conversation column's viewport rect — the production drag-out target
@@ -183,7 +183,7 @@ test('float a tab, move the window, reload restores it, dock it back', async ({ 
   await page.waitForTimeout(500)
   await page.reload({ waitUntil: 'domcontentloaded' })
   await dismissTakeovers(page)
-  const sidebar2 = page.locator('[data-dsh-better-sidebar]')
+  const sidebar2 = page.locator('[data-dsh-workspace]')
   await expect(sidebar2.locator('[data-dsh-float-window]')).toHaveCount(1, { timeout: 90_000 })
   await assertNoCrash(page)
 

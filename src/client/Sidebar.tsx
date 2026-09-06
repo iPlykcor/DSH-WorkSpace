@@ -868,7 +868,7 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
     try {
       value = descriptor.badge(ctx, { sessionId, cwd }, state)
     } catch (error) {
-      console.error('[dsh-better-sidebar] tab badge error:', error)
+      console.error('[dsh-workspace] tab badge error:', error)
       return null
     }
     if (value === null || value === undefined || value === '') return null

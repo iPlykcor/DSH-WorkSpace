@@ -51,7 +51,7 @@ interface FrameSample {
 test('bottom panel tracks the center column during the right-panel toggle transition (issue #315)', async ({ page }) => {
   await page.goto(PAGE_URL, { waitUntil: 'domcontentloaded' })
   await expect(page.locator('#root > *')).not.toHaveCount(0, { timeout: 90_000 })
-  const sidebar = page.locator('[data-dsh-better-sidebar]')
+  const sidebar = page.locator('[data-dsh-workspace]')
   await expect(sidebar).toBeAttached({ timeout: 90_000 })
 
   // Dismiss onboarding (same dance as the drag lane).

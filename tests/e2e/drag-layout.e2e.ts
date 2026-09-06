@@ -68,7 +68,7 @@ interface FrameSample {
 test('width drag tracks the shell 1:1 with transitions disabled (issue #92)', async ({ page }) => {
   await page.goto(PAGE_URL, { waitUntil: 'domcontentloaded' })
   await expect(page.locator('#root > *')).not.toHaveCount(0, { timeout: 90_000 })
-  const sidebar = page.locator('[data-dsh-better-sidebar]')
+  const sidebar = page.locator('[data-dsh-workspace]')
   await expect(sidebar).toBeAttached({ timeout: 90_000 })
 
   // Dismiss whatever onboarding takeover is present (same dance as the mount
@@ -119,7 +119,7 @@ test('width drag tracks the shell 1:1 with transitions disabled (issue #92)', as
   // window's tree-dock handle matches too, but the panel strip is always the
   // LEFTMOST one (the dock sits at the panel's right edge).
   const locateStrip = `(() => {
-    const host = document.querySelector('[data-dsh-better-sidebar]')
+    const host = document.querySelector('[data-dsh-workspace]')
     if (host === null) return null
     const boxes = [...host.querySelectorAll('*')]
       .filter(el => getComputedStyle(el).cursor === 'col-resize')
@@ -156,7 +156,7 @@ test('width drag tracks the shell 1:1 with transitions disabled (issue #92)', as
     const samples: Sample[] = []
     // Same rule as the strip locator above: the LEFTMOST col-resize element
     // inside the sidebar host (the tree-dock handle is further right).
-    const host = document.querySelector('[data-dsh-better-sidebar]')
+    const host = document.querySelector('[data-dsh-workspace]')
     const strip = host === null
       ? null
       : [...host.querySelectorAll<HTMLElement>('*')]
@@ -246,7 +246,7 @@ test('width drag tracks the shell 1:1 with transitions disabled (issue #92)', as
 test('a very fast width drag still commits the dragged position (no rollback on quick release)', async ({ page }) => {
   await page.goto(PAGE_URL, { waitUntil: 'domcontentloaded' })
   await expect(page.locator('#root > *')).not.toHaveCount(0, { timeout: 90_000 })
-  const sidebar = page.locator('[data-dsh-better-sidebar]')
+  const sidebar = page.locator('[data-dsh-workspace]')
   await expect(sidebar).toBeAttached({ timeout: 90_000 })
 
   // Dismiss whatever onboarding takeover is present (same dance as the
@@ -296,7 +296,7 @@ test('a very fast width drag still commits the dragged position (no rollback on 
   await expect
     .poll(async () => {
       const box = await page.evaluate(() => {
-        const host = document.querySelector('[data-dsh-better-sidebar]')
+        const host = document.querySelector('[data-dsh-workspace]')
         const el = [...host!.querySelectorAll('*')]
           .filter(e => getComputedStyle(e).cursor === 'col-resize')
           .map(e => e.getBoundingClientRect())
@@ -310,7 +310,7 @@ test('a very fast width drag still commits the dragged position (no rollback on 
     }, { timeout: 30_000 })
     .toBe(true)
   const stripBox = await page.evaluate(() => {
-    const host = document.querySelector('[data-dsh-better-sidebar]')
+    const host = document.querySelector('[data-dsh-workspace]')
     if (host === null) return null
     const boxes = [...host.querySelectorAll('*')]
       .filter(el => getComputedStyle(el).cursor === 'col-resize')
@@ -394,7 +394,7 @@ async function settleWidthStrip(page: Page): Promise<{ startX: number; startY: n
   await expect
     .poll(async () => {
       const box = await page.evaluate(() => {
-        const host = document.querySelector('[data-dsh-better-sidebar]')
+        const host = document.querySelector('[data-dsh-workspace]')
         const el = [...host!.querySelectorAll('*')]
           .filter(e => getComputedStyle(e).cursor === 'col-resize')
           .map(e => e.getBoundingClientRect())
@@ -408,7 +408,7 @@ async function settleWidthStrip(page: Page): Promise<{ startX: number; startY: n
     }, { timeout: 30_000 })
     .toBe(true)
   const stripBox = await page.evaluate(() => {
-    const host = document.querySelector('[data-dsh-better-sidebar]')
+    const host = document.querySelector('[data-dsh-workspace]')
     if (host === null) return null
     const boxes = [...host.querySelectorAll('*')]
       .filter(el => getComputedStyle(el).cursor === 'col-resize')
@@ -436,7 +436,7 @@ async function dispatchPointerOnStrip(
   init: { clientX?: number; clientY?: number },
 ): Promise<void> {
   await page.evaluate(({ type, init }) => {
-    const host = document.querySelector('[data-dsh-better-sidebar]')
+    const host = document.querySelector('[data-dsh-workspace]')
     if (host === null) throw new Error('sidebar host missing')
     const el = [...host.querySelectorAll<HTMLElement>('*')]
       .filter(el => getComputedStyle(el).cursor === 'col-resize')
@@ -458,7 +458,7 @@ async function dispatchPointerOnStrip(
 test('an interrupted fast drag (pointercancel → lostpointercapture) keeps the dragged width (issue #247)', async ({ page }) => {
   await page.goto(PAGE_URL, { waitUntil: 'domcontentloaded' })
   await expect(page.locator('#root > *')).not.toHaveCount(0, { timeout: 90_000 })
-  const sidebar = page.locator('[data-dsh-better-sidebar]')
+  const sidebar = page.locator('[data-dsh-workspace]')
   await expect(sidebar).toBeAttached({ timeout: 90_000 })
   await dismissOnboarding(page)
   await expandSidebar(page, sidebar)
@@ -493,7 +493,7 @@ test('an interrupted fast drag (pointercancel → lostpointercapture) keeps the 
 test('a capture-lost drag with no usable coordinates keeps the last applied width (issue #247)', async ({ page }) => {
   await page.goto(PAGE_URL, { waitUntil: 'domcontentloaded' })
   await expect(page.locator('#root > *')).not.toHaveCount(0, { timeout: 90_000 })
-  const sidebar = page.locator('[data-dsh-better-sidebar]')
+  const sidebar = page.locator('[data-dsh-workspace]')
   await expect(sidebar).toBeAttached({ timeout: 90_000 })
   await dismissOnboarding(page)
   await expandSidebar(page, sidebar)
@@ -528,7 +528,7 @@ test('a capture-lost drag with no usable coordinates keeps the last applied widt
 test('bottom panel never flashes full-width after a width drag release (issue #258)', async ({ page }) => {
   await page.goto(PAGE_URL, { waitUntil: 'domcontentloaded' })
   await expect(page.locator('#root > *')).not.toHaveCount(0, { timeout: 90_000 })
-  const sidebar = page.locator('[data-dsh-better-sidebar]')
+  const sidebar = page.locator('[data-dsh-workspace]')
   await expect(sidebar).toBeAttached({ timeout: 90_000 })
   await dismissOnboarding(page)
   await expandSidebar(page, sidebar)
@@ -560,7 +560,7 @@ test('bottom panel never flashes full-width after a width drag release (issue #2
   await page.evaluate(() => {
     const samples: Array<{ t: number; bottomRight: number; colRight: number; varW: string; dragging: boolean; iw: number }> = []
     const loop = (): void => {
-      const bottom = document.querySelector('[data-dsh-better-sidebar] [data-dsh-bottom-panel]')
+      const bottom = document.querySelector('[data-dsh-workspace] [data-dsh-bottom-panel]')
       const col = document.querySelector('#root [data-slot="conversation"]')?.parentElement
       samples.push({
         t: performance.now(),
@@ -621,7 +621,7 @@ test('the bottom-push anchor resolves through the shell-written center-column ta
   // node: a stale tag on a swapped-out node (boot swap / HMR) would leave
   // the push rule anchorless or doubled.
   await page.goto(PAGE_URL, { waitUntil: 'domcontentloaded' })
-  await expect(page.locator('[data-dsh-better-sidebar]')).toBeAttached({ timeout: 90_000 })
+  await expect(page.locator('[data-dsh-workspace]')).toBeAttached({ timeout: 90_000 })
   await expect
     .poll(async () => page.evaluate(() => document.querySelectorAll('#root [data-dsh-center-col]').length), { timeout: 90_000 })
     .toBe(1)
@@ -651,7 +651,7 @@ test('dragging the bottom strip while the right panel is closed keeps the host l
   // derives from it); only the PUSHED width must ride the panelOpen gate.
   await page.goto(PAGE_URL, { waitUntil: 'domcontentloaded' })
   await expect(page.locator('#root > *')).not.toHaveCount(0, { timeout: 90_000 })
-  const sidebar = page.locator('[data-dsh-better-sidebar]')
+  const sidebar = page.locator('[data-dsh-workspace]')
   await expect(sidebar).toBeAttached({ timeout: 90_000 })
   await dismissOnboarding(page)
 
@@ -714,7 +714,7 @@ test('dragging the bottom strip while the right panel is closed keeps the host l
   await expect
     .poll(async () => {
       const probe = await page.evaluate(() => {
-        const bottom = document.querySelector('[data-dsh-better-sidebar] [data-dsh-bottom-panel]')
+        const bottom = document.querySelector('[data-dsh-workspace] [data-dsh-bottom-panel]')
         if (bottom === null) return null
         const strip = [...bottom.querySelectorAll<HTMLElement>('*')].find(el => getComputedStyle(el).cursor === 'row-resize')
         if (strip === undefined) return null
@@ -726,7 +726,7 @@ test('dragging the bottom strip while the right panel is closed keeps the host l
     }, { timeout: 30_000 })
     .toBeLessThanOrEqual(8)
   const stripBox = await page.evaluate(() => {
-    const bottom = document.querySelector('[data-dsh-better-sidebar] [data-dsh-bottom-panel]')
+    const bottom = document.querySelector('[data-dsh-workspace] [data-dsh-bottom-panel]')
     if (bottom === null) return null
     const strip = [...bottom.querySelectorAll<HTMLElement>('*')].find(el => getComputedStyle(el).cursor === 'row-resize')
     if (strip === undefined) return null

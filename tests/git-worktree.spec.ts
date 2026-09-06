@@ -6,9 +6,9 @@ import { join, resolve } from 'node:path'
 import { parseWorktreeList, resolveWorktree, status, worktrees } from '../src/git.ts'
 
 const IDENTITY = {
-  GIT_AUTHOR_NAME: 'dsh-better-sidebar-test',
+  GIT_AUTHOR_NAME: 'dsh-workspace-test',
   GIT_AUTHOR_EMAIL: 'test@dsh.invalid',
-  GIT_COMMITTER_NAME: 'dsh-better-sidebar-test',
+  GIT_COMMITTER_NAME: 'dsh-workspace-test',
   GIT_COMMITTER_EMAIL: 'test@dsh.invalid',
 }
 

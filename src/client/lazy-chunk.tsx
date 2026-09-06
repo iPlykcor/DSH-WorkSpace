@@ -37,7 +37,7 @@ function LazyChunkView<P extends object>({ chunk, pick, props }: LazyChunkViewPr
       if (cancelled) return
       const Comp = pick(mod)
       if (Comp === undefined) {
-        setState({ status: 'error', message: `[dsh-better-sidebar] chunk "${chunk}" is missing its component` })
+        setState({ status: 'error', message: `[dsh-workspace] chunk "${chunk}" is missing its component` })
         return
       }
       setState({ status: 'ready', Comp })

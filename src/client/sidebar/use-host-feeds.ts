@@ -76,7 +76,7 @@ export function useHostFeeds(feeds: {
         if (closed) return
         failures += 1
         if (failures >= FAILURE_LIMIT) {
-          console.error('[dsh-better-sidebar] agent-terminals connection failed; stopping reconnect loop', sessionId)
+          console.error('[dsh-workspace] agent-terminals connection failed; stopping reconnect loop', sessionId)
           return
         }
         retry = window.setTimeout(connect, 2000)
@@ -148,7 +148,7 @@ export function useHostFeeds(feeds: {
         if (closed) return
         failures += 1
         if (failures >= FAILURE_LIMIT) {
-          console.error('[dsh-better-sidebar] agent-opens connection failed; stopping reconnect loop', sessionId)
+          console.error('[dsh-workspace] agent-opens connection failed; stopping reconnect loop', sessionId)
           return
         }
         retry = window.setTimeout(connect, 2000)

@@ -114,12 +114,12 @@ describe('findProfileDir / findPluginRoot', () => {
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'pty-deps-'))
     // A fake plugin module deep inside the profile's pnpm node_modules.
-    const pkgRoot = join(root, 'profiles', 'web', 'node_modules', '.pnpm', 'dsh-better-sidebar@0.0.0', 'node_modules', 'dsh-better-sidebar')
+    const pkgRoot = join(root, 'profiles', 'web', 'node_modules', '.pnpm', 'dsh-workspace@0.0.0', 'node_modules', 'dsh-workspace')
     const libDir = join(pkgRoot, 'lib')
     mkdirSync(libDir, { recursive: true })
     writeFileSync(join(root, 'profiles', 'web', 'package.json'), JSON.stringify({ name: 'dsh-profile-web' }))
     writeFileSync(join(root, 'profiles', 'web', 'pnpm-workspace.yaml'), '')
-    writeFileSync(join(pkgRoot, 'package.json'), JSON.stringify({ name: 'dsh-better-sidebar' }))
+    writeFileSync(join(pkgRoot, 'package.json'), JSON.stringify({ name: 'dsh-workspace' }))
     moduleFile = join(libDir, 'index.js')
     writeFileSync(moduleFile, '')
   })
@@ -131,7 +131,7 @@ describe('findProfileDir / findPluginRoot', () => {
   })
 
   it('walks up to the plugin package root by package.json name', () => {
-    expect(findPluginRoot(moduleFile)).toBe(realpathSync(join(root, 'profiles', 'web', 'node_modules', '.pnpm', 'dsh-better-sidebar@0.0.0', 'node_modules', 'dsh-better-sidebar')))
+    expect(findPluginRoot(moduleFile)).toBe(realpathSync(join(root, 'profiles', 'web', 'node_modules', '.pnpm', 'dsh-workspace@0.0.0', 'node_modules', 'dsh-workspace')))
   })
 
   it('falls back to $DSH_HOME/profiles/web when no ancestor looks like a profile', () => {
@@ -161,12 +161,12 @@ describe('depsStatus', () => {
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'pty-deps-'))
-    const pkgRoot = join(root, 'profiles', 'web', 'node_modules', '.pnpm', 'dsh-better-sidebar@0.0.0', 'node_modules', 'dsh-better-sidebar')
+    const pkgRoot = join(root, 'profiles', 'web', 'node_modules', '.pnpm', 'dsh-workspace@0.0.0', 'node_modules', 'dsh-workspace')
     mkdirSync(join(pkgRoot, 'scripts'), { recursive: true })
     mkdirSync(join(pkgRoot, 'lib'), { recursive: true })
     writeFileSync(join(root, 'profiles', 'web', 'package.json'), JSON.stringify({ name: 'dsh-profile-web' }))
     writeFileSync(join(root, 'profiles', 'web', 'pnpm-workspace.yaml'), '')
-    writeFileSync(join(pkgRoot, 'package.json'), JSON.stringify({ name: 'dsh-better-sidebar' }))
+    writeFileSync(join(pkgRoot, 'package.json'), JSON.stringify({ name: 'dsh-workspace' }))
     writeFileSync(join(pkgRoot, 'scripts', 'install.sh'), '#!/usr/bin/env bash\n')
     writeFileSync(join(pkgRoot, 'scripts', 'install.ps1'), '# repair fixture\n')
     moduleFile = join(pkgRoot, 'lib', 'index.js')
@@ -190,7 +190,7 @@ describe('depsStatus', () => {
     if (status.ok) throw new Error('unreachable')
     expect(status.cause).toBe('Cannot find package node-pty')
     const scriptName = process.platform === 'win32' ? 'install.ps1' : 'install.sh'
-    const script = realpathSync(join(root, 'profiles', 'web', 'node_modules', '.pnpm', 'dsh-better-sidebar@0.0.0', 'node_modules', 'dsh-better-sidebar', 'scripts', scriptName))
+    const script = realpathSync(join(root, 'profiles', 'web', 'node_modules', '.pnpm', 'dsh-workspace@0.0.0', 'node_modules', 'dsh-workspace', 'scripts', scriptName))
     expect(status.command).toBe(process.platform === 'win32'
       ? `powershell -ExecutionPolicy Bypass -File "${script}" -Repair -Profile "web"`
       : `bash "${script}" --repair --profile "web"`)
