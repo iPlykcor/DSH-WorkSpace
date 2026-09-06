@@ -23,6 +23,7 @@ import { registerImeGuard } from './ime-guard.ts'
 import { registerSettingsNavIcon } from './settings-nav-icon.ts'
 import { loadBootDecision } from './prefs.ts'
 import { SideCardSection } from './SideCardSection.tsx'
+import { CenterFileView } from './CenterFileView.tsx'
 import { api } from './api.ts'
 import { LOCALE_NS, attachLocale, attachBetterLocale, t, zh, en } from './locales.ts'
 import { loadChunk } from './chunk-loader.ts'
@@ -440,6 +441,20 @@ export function apply(ctx: Context): void {
       label: () => t('settingsNav'),
       inject: () => ({ store: sidebarStore, service }),
     }, SideCardSection))
+
+    // Q2-A: a "文件" center-column view tab beside 对话/轨迹 (the
+    // `conversation.view` view ring). It shows the file most recently opened
+    // in that session's sidebar; the sidebar's open path writes into
+    // center-file.ts. Wrapped by the shell's own error boundary — a failure
+    // here must never break the center conversation.
+    ctx.slots.inject('conversation.view', () => ctx.slots.register({
+      name: 'conversation.view',
+      id: 'dshws-file',
+      order: 20,
+      locale: LOCALE_NS,
+      label: () => t('files'),
+      inject: (sessionId: string) => ({ sessionId }),
+    }, CenterFileView))
   } catch (error) {
     fail('load', error)
   }

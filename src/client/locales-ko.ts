@@ -460,4 +460,7 @@ export const ko: Record<string, string> = {
   workspaceViolationsTitle: 'Model writes into read-only folders',
 
   collapseAll: 'Collapse all',
+
+  centerFileEmpty: 'Open a file from the sidebar; it shows here',
+  centerFileBinary: 'This file type is not yet center-previewable (use Download)',
 }

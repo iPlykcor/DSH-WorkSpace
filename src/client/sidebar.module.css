@@ -2801,3 +2801,10 @@ body[data-dsh-sidebar-dragging] .bottomPanel {
   background: var(--dsw-alias-interactive-bg-hover);
   word-break: break-word;
 }
+
+/* Center-conversation "нд╪Ч" view (conversation.view / Q2-A). */
+.centerFile { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.centerFilePath { padding: 8px 10px; font: var(--dsw-font-xxs-12); color: var(--dsw-alias-label-primary); word-break: break-all; border-bottom: 1px solid var(--dsw-alias-border-l2); }
+.centerFileEmpty { padding: 14px 12px; font: var(--dsw-font-xxs-12); color: var(--dsw-alias-label-secondary); }
+.centerFileError { padding: 8px 10px; font: var(--dsw-font-xxs-12); color: var(--dsw-alias-state-error-primary); white-space: pre-wrap; }
+.centerFilePre { flex: 1 1 auto; overflow: auto; margin: 0; padding: 10px 12px; font: var(--dsw-font-xxs-12); color: var(--dsw-alias-label-primary); white-space: pre-wrap; word-break: break-word; }

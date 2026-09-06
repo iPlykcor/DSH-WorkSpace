@@ -231,6 +231,8 @@ export const ja: Record<string, string> = {
   workspaceAutoApplyOn: '開くと自動適用',
   workspaceAutoApplyOff: '自動適用しません（「適用」をクリック）',
   collapseAll: 'すべて折りたたみ',
+  centerFileEmpty: 'サイドバーでファイルを開くとここに表示されます',
+  centerFileBinary: 'このファイル形式は中央プレビュー未対応です（ダウンロード可）',
   uploadDone: '{count} 個のファイルをアップロードしました',
   uploadFailed: 'アップロード失敗：{error}',
   uploadFailedUnknown: '不明なエラー',

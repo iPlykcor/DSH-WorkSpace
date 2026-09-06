@@ -11,6 +11,7 @@ import type { Context } from '../context-types.ts'
 import { firstLeaf, revealPaths, togglePanel, type SidebarStore } from './state.ts'
 import { t } from './locales.ts'
 import { resolveSidebarPath, selectProducedFiles } from './produced-files.ts'
+import { setCenterFile } from './center-file.ts'
 import { wrapOpenWorkspacePath, type OpenWorkspacePathService } from './openpath-intercept.ts'
 import css from './sidebar.module.css'
 
@@ -20,6 +21,8 @@ export function openSidebarFile(ctx: Context, store: SidebarStore, sessionId: st
   const absolute = resolveSidebarPath(summary?.cwd, path)
   const at = Math.max(absolute.lastIndexOf('/'), absolute.lastIndexOf('\\'))
   const title = at === -1 ? absolute : absolute.slice(at + 1)
+  // Also surface the file in the center-conversation "文件" view (Q2-A).
+  setCenterFile(sessionId, absolute)
   // Route through the sidebar service so the editor descriptor's dedupeKey
   // (per-path) applies; the id is path-derived so multiple editors coexist.
   ctx.get('betterSidebar')?.openTab({ type: 'editor', title, path: absolute, id: `editor:${absolute}` })
