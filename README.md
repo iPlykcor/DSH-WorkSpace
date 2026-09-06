@@ -1,4 +1,14 @@
-# dsh-better-sidebar
+# DSH-WorkSpace
+
+> **致谢上游**：本项目基于 [@omdsh-dev/DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar)（MIT）改进而来——其 VSCode 风格右侧侧边栏（资源管理器 / 编辑器 / 终端 / Git / 浏览器）与 `ctx.betterSidebar` 服务化扩展能力是全部基础，在此对原作者深表感谢。我们保留了上游架构与 MIT 许可，仅在其上做增益，不改其对外接口。
+
+> **本 fork 新增（DSH-WorkSpace）**
+> - **多根工作区**：`*.dsh-workspace`（JSONC）清单一次列出多个根目录；打开清单即应用为多根树，按会话隔离、刷新自动恢复。
+> - **目录读写权限**：每目录 `readWrite | readOnly`（未标注默认只读）；侧边栏读/写/改名/删除/上传与 Git 写类按策略硬拦截（只读根 403 + UI 禁用）。
+> - **只读越权检测**：模型写入只读目录时，基于会话事件流检测 + 侧边栏告警 + 最佳努力还原。
+> - **中心列文件视图**：向 `conversation.view` 注册“文件”页签，与“对话 / 轨迹”并排；文本可编辑、图片/PDF 预览。
+> - **一键生效 / 折叠**：改完清单点 ⟳ 即重读；新应用默认全部收起 + 一键折叠全部；激活时自动纳入会话目录为隐含可写根，避免锁死当前项目。
+> - **运行时技能**：注册 `dsh-workspace` 技能，模型无需扫范例即可按格式创建/编辑清单。
 
 <!-- Hero -->
 <div align="center">

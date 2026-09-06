@@ -1,8 +1,8 @@
 {
-  "id": "dsh-external/dsh-better-sidebar",
+  "id": "dsh-external/dsh-workspace",
   "version": "0.18.0",
   "main": "./lib/index.js",
-  "description": "VSCode 风格右侧侧边栏：文件资源管理器 / 编辑器 / 终端 / Git / 浏览器，按会话隔离。暴露服务供其他插件注册侧边栏页面和文件预览器",
+  "description": "DSH-WorkSpace：VSCode 风格右侧侧边栏（资源管理器/编辑器/终端/Git/浏览器）+ 多根工作区(.dsh-workspace)、目录读写权限、只读写入检测、中心列文件视图。基于 dsh-better-sidebar 改进（见 README 致谢）",
   "engines": {
     "dsh": ">=0.1.2-rc.1"
   },
