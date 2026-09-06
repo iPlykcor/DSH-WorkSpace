@@ -43,8 +43,12 @@ export function WorkspaceFileView(props: FileViewerProps): ReactNode {
         setNote(result.warnings.length > 0 ? result.warnings.join('; ') : t('workspaceApplied'))
         // Bring the multi-root tree into sight (a path-less editor tab IS the
         // files window): the file tab stays open, the explorer shows one root
-        // per folder.
-        ctx.get('betterSidebar')?.openTab({ type: 'editor', meta: { treeOpen: true } })
+        // per folder, and the window is titled after the workspace name.
+        ctx.get('betterSidebar')?.openTab({
+          type: 'editor',
+          title: result.workspace.name,
+          meta: { treeOpen: true },
+        })
       })
       .catch((failure: unknown) => {
         setError(failure instanceof Error ? failure.message : String(failure))
