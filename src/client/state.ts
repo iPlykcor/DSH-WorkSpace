@@ -118,6 +118,46 @@ export interface SidebarState {
   bottomSplits: SplitNode
   /** Free windows (tabs dragged out onto the conversation area). */
   floats: FloatWindow[]
+  /**
+   * The active multi-root workspace snapshot (null = legacy single cwd).
+   * Persisted with the layout; the host stays authoritative and re-validates
+   * on session attach (see Sidebar.tsx).
+   */
+  workspace: SidebarWorkspaceState | null
+}
+
+/** Per-folder access of the active multi-root workspace (host snapshot mirror). */
+export type SidebarWsAccess = 'readWrite' | 'readOnly'
+
+/** One resolved root of the active workspace (host snapshot mirror). */
+export interface SidebarWsRoot {
+  /** Lexical absolute path of the root (the tree header + expansion key). */
+  path: string
+  /** Display label (folder `name` override, else the base name). */
+  label: string
+  access: SidebarWsAccess
+  /** Whether the canonical directory currently exists. */
+  exists: boolean
+  /** False = the implicit session-cwd root the host appended. */
+  listed: boolean
+}
+
+/**
+ * The active multi-root workspace snapshot of a session, persisted with the
+ * layout so a reload restores the multi-root tree immediately. The HOST
+ * remains authoritative (route guards); the client reconciles this snapshot
+ * against `workspace.state` on session attach and re-activates from
+ * `manifestPath` when the host (e.g. after a restart) reports none.
+ */
+export interface SidebarWorkspaceState {
+  manifestPath: string
+  name: string
+  /** The session cwd the workspace was built from. */
+  cwd?: string
+  /** Path-match case folding on this host (win32 true). */
+  ci: boolean
+  roots: SidebarWsRoot[]
+  activatedAt?: number
 }
 
 export const PANEL_MIN = 280
@@ -232,6 +272,7 @@ export function makeDefaultState(width = PANEL_DEFAULT, panelOpen = true, seed: 
     bottomOpenedOnce: false,
     bottomSplits: bottomLeaf,
     floats: [],
+    workspace: null,
   }
 }
 
@@ -1299,6 +1340,7 @@ export function sanitizeState(parsed: unknown): SidebarState | undefined {
     bottomOpenedOnce: record.bottomOpenedOnce === true,
     bottomSplits,
     floats,
+    workspace: sanitizeWorkspaceState(record.workspace),
   }
 }
 
@@ -1310,6 +1352,51 @@ function pruneEmptyPanes(node: SplitNode): SplitNode {
     (tree, leaf) => leaf.tabs.length === 0 ? removeLeafAt(tree, leaf.id) : tree,
     node,
   )
+}
+
+/** Apply the active workspace snapshot: roots that exist auto-expand so the
+ *  multi-root tree shows its levels without a manual click. null clears it. */
+export function setWorkspaceState(state: SidebarState, workspace: SidebarWorkspaceState | null): SidebarState {
+  if (workspace === null) return state.workspace === null ? state : { ...state, workspace: null }
+  const expanded = [...state.expanded]
+  for (const root of workspace.roots) {
+    if (root.exists && !expanded.includes(root.path)) expanded.push(root.path)
+  }
+  return { ...state, workspace, expanded }
+}
+
+/** A persisted (or wire) workspace snapshot may be older/malformed; only a
+ *  structurally valid snapshot is restored — anything else falls back to the
+ *  legacy single-cwd tree (the host is asked to re-activate anyway). */
+export function sanitizeWorkspaceState(value: unknown): SidebarWorkspaceState | null {
+  if (value === null || value === undefined) return null
+  if (typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  if (typeof record.manifestPath !== 'string' || record.manifestPath === '') return null
+  if (!Array.isArray(record.roots) || record.roots.length === 0) return null
+  const roots: SidebarWsRoot[] = []
+  for (const entry of record.roots) {
+    if (entry === null || typeof entry !== 'object') continue
+    const root = entry as Record<string, unknown>
+    if (typeof root.path !== 'string' || root.path === '' || typeof root.label !== 'string') continue
+    if (root.access !== 'readWrite' && root.access !== 'readOnly') continue
+    roots.push({
+      path: root.path,
+      label: root.label,
+      access: root.access,
+      exists: root.exists === true,
+      listed: root.listed === true,
+    })
+  }
+  if (roots.length === 0) return null
+  return {
+    manifestPath: record.manifestPath,
+    name: typeof record.name === 'string' && record.name !== '' ? record.name : record.manifestPath,
+    ci: record.ci === true,
+    roots,
+    ...(typeof record.cwd === 'string' && record.cwd !== '' ? { cwd: record.cwd } : {}),
+    ...(typeof record.activatedAt === 'number' ? { activatedAt: record.activatedAt } : {}),
+  }
 }
 
 /**

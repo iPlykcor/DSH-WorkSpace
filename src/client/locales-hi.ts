@@ -448,4 +448,22 @@ export const hi: Record<string, string> = {
   pluginCodeNavName: 'कोड प्रीव्यू नेविगेटर',
   pluginVideoPreviewName: 'वीडियो प्रीव्यू',
   presetDshDesktopDesc: 'Electron एडवांस्ड (फ्रेमलेस) मोड: macOS ऊपर 20px सुरक्षित रखता है; Windows WCO अनुपलब्ध होने पर टाइटल बार के लिए 32px रखता है',
+
+
+  // dshws (.dsh-workspace) copy: en fallback pending native review
+  viewerWorkspace: 'Multi-root workspace',
+  workspaceApplied: 'Applied to the sidebar',
+  workspaceApply: 'Apply workspace',
+  workspaceApplyFailed: 'Apply failed: {message}',
+  workspaceAutoApplyOff: 'No auto-apply (use Apply)',
+  workspaceAutoApplyOn: 'Auto-applies when opened',
+  workspaceDeactivate: 'Exit multi-root workspace',
+  workspaceFolderReadOnly: 'Read-only folder (no writes)',
+  workspaceInvalidManifest: 'Not a valid .dsh-workspace manifest',
+  workspaceMissingFolder: 'missing',
+  workspaceRollback: 'Rollback',
+  workspaceRoots: '{n} roots',
+  workspaceViolationMeta: '{root} \u00b7 {kind}',
+  workspaceViolations: '{n} read-only write(s)',
+  workspaceViolationsTitle: 'Model writes into read-only folders',
 }

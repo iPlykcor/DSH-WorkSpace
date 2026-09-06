@@ -463,4 +463,22 @@ export const zhHK: Record<string, string> = {
   pluginCodeNavName: '程式碼預覽導航',
   pluginVideoPreviewName: '影片預覽插件',
   presetDshDesktopDesc: 'Electron 進階模式（無邊框）：macOS 頂欄 20px、Windows 無 WCO 時 32px 標題欄讓位',
+
+
+  // dshws (.dsh-workspace) copy: en fallback pending native review
+  viewerWorkspace: '\u591a\u6839\u5de5\u4f5c\u5340',
+  workspaceApplied: '\u5df2\u5957\u7528\u5230\u5074\u908a\u6b04',
+  workspaceApply: '\u5957\u7528\u6b64\u5de5\u4f5c\u5340',
+  workspaceApplyFailed: '\u5957\u7528\u5931\u6557\uff1a{message}',
+  workspaceAutoApplyOff: '\u4e0d\u6703\u81ea\u52d5\u5957\u7528\uff08\u8acb\u9ede\u300c\u5957\u7528\u300d\uff09',
+  workspaceAutoApplyOn: '\u958b\u555f\u6642\u81ea\u52d5\u5957\u7528',
+  workspaceDeactivate: '\u7d50\u675f\u591a\u6839\u5de5\u4f5c\u5340',
+  workspaceFolderReadOnly: '\u552f\u8b80\u8cc7\u6599\u593e\uff08\u7121\u6cd5\u5beb\u5165\uff09',
+  workspaceInvalidManifest: '\u4e0d\u662f\u6709\u6548\u7684 .dsh-workspace \u6e05\u55ae',
+  workspaceMissingFolder: '\u76ee\u9304\u4e0d\u5b58\u5728',
+  workspaceRollback: '\u5fa9\u539f',
+  workspaceRoots: '{n} \u500b\u6839\u76ee\u9304',
+  workspaceViolationMeta: '{root} \u00b7 {kind}',
+  workspaceViolations: '\u552f\u8b80\u8d8a\u6b0a\u5beb\u5165 {n} \u8655',
+  workspaceViolationsTitle: '\u6a21\u578b\u5beb\u5165\u552f\u8b80\u8cc7\u6599\u593e\u7684\u8a18\u9304',
 }

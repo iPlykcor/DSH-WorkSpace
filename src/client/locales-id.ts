@@ -446,4 +446,22 @@ export const id: Record<string, string> = {
   pluginCodeNavName: 'Navigator pratinjau kode',
   pluginVideoPreviewName: 'Pratinjau video',
   presetDshDesktopDesc: 'Mode Electron lanjutan (tanpa bingkai): macOS mencadangkan 20px di atas; Windows mencadangkan 32px untuk bilah judul saat WCO tidak tersedia',
+
+
+  // dshws (.dsh-workspace) copy: en fallback pending native review
+  viewerWorkspace: 'Multi-root workspace',
+  workspaceApplied: 'Applied to the sidebar',
+  workspaceApply: 'Apply workspace',
+  workspaceApplyFailed: 'Apply failed: {message}',
+  workspaceAutoApplyOff: 'No auto-apply (use Apply)',
+  workspaceAutoApplyOn: 'Auto-applies when opened',
+  workspaceDeactivate: 'Exit multi-root workspace',
+  workspaceFolderReadOnly: 'Read-only folder (no writes)',
+  workspaceInvalidManifest: 'Not a valid .dsh-workspace manifest',
+  workspaceMissingFolder: 'missing',
+  workspaceRollback: 'Rollback',
+  workspaceRoots: '{n} roots',
+  workspaceViolationMeta: '{root} \u00b7 {kind}',
+  workspaceViolations: '{n} read-only write(s)',
+  workspaceViolationsTitle: 'Model writes into read-only folders',
 }

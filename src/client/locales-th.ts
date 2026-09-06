@@ -448,4 +448,22 @@ export const th: Record<string, string> = {
   pluginCodeNavName: 'ตัวนำทางพรีวิวโค้ด',
   pluginVideoPreviewName: 'พรีวิววิดีโอ',
   presetDshDesktopDesc: 'โหมดขั้นสูงของ Electron (ไร้กรอบ): macOS จองแถบด้านบน 20px; Windows จอง 32px ให้แถบหัวเรื่องเมื่อไม่มี WCO',
+
+
+  // dshws (.dsh-workspace) copy: en fallback pending native review
+  viewerWorkspace: 'Multi-root workspace',
+  workspaceApplied: 'Applied to the sidebar',
+  workspaceApply: 'Apply workspace',
+  workspaceApplyFailed: 'Apply failed: {message}',
+  workspaceAutoApplyOff: 'No auto-apply (use Apply)',
+  workspaceAutoApplyOn: 'Auto-applies when opened',
+  workspaceDeactivate: 'Exit multi-root workspace',
+  workspaceFolderReadOnly: 'Read-only folder (no writes)',
+  workspaceInvalidManifest: 'Not a valid .dsh-workspace manifest',
+  workspaceMissingFolder: 'missing',
+  workspaceRollback: 'Rollback',
+  workspaceRoots: '{n} roots',
+  workspaceViolationMeta: '{root} \u00b7 {kind}',
+  workspaceViolations: '{n} read-only write(s)',
+  workspaceViolationsTitle: 'Model writes into read-only folders',
 }

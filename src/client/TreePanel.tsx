@@ -15,11 +15,12 @@
  * drop over the file window uploads here and never reaches DSH's chat
  * intake.
  */
-import { useEffect, useRef, useState, type InputHTMLAttributes } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type InputHTMLAttributes } from 'react'
 import clsx from 'clsx'
-import { IconFolderOpen16, IconRefreshOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { api } from './api.ts'
+import { IconCloseFill14, IconFolderOpen16, IconRefreshOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { api, type WorkspaceViolation } from './api.ts'
 import type { SidebarStore } from './state.ts'
+import { setWorkspaceState } from './state.ts'
 import { FileTree } from './FileTree.tsx'
 import { IconUploadOutline16 } from './icons.tsx'
 import type { OpenWithTarget } from './open-with.ts'
@@ -173,6 +174,60 @@ export function TreePanel(props: {
     }
   }, [sessionId, cwd, needle])
 
+  // The active multi-root workspace of the session (null = legacy single
+  // root). Subscribed through the store so an activation / deactivation
+  // anywhere re-renders the tree immediately.
+  const workspace = useSyncExternalStore(
+    useCallback((callback: () => void) => store.subscribe(callback), [store]),
+    useCallback(() => store.getSnapshot().state?.workspace ?? null, [store]),
+  )
+
+  // Read-only-write violations (model agent wrote into a readOnly root after
+  // activation): polled while a workspace is active and the tree is shown.
+  const [violations, setViolations] = useState<WorkspaceViolation[]>([])
+  const [violationsOpen, setViolationsOpen] = useState(false)
+  const [violationBusy, setViolationBusy] = useState(false)
+  const [violationNote, setViolationNote] = useState<string | null>(null)
+  const refreshViolations = useCallback((notify: boolean): void => {
+    if (workspace === null || sessionId === undefined) return
+    api.workspaceViolations({ sessionId, cwd }).then(({ violations: found }) => {
+      if (notify && found.length > 0 && violations.length !== found.length) setViolationsOpen(true)
+      setViolations(found)
+      setViolationNote(null)
+    }).catch(() => { /* transient; the next poll retries */ })
+  }, [workspace, sessionId, cwd, violations.length])
+  useEffect(() => {
+    setViolations([])
+    setViolationsOpen(false)
+    if (workspace === null) return
+    refreshViolations(false)
+    const timer = window.setInterval(() => { refreshViolations(true) }, 4000)
+    return () => window.clearInterval(timer)
+  }, [workspace, refreshViolations])
+
+  /** Exit the multi-root workspace (host + store) back to the session cwd. */
+  const exitWorkspace = (): void => {
+    if (sessionId === undefined) return
+    api.workspaceDeactivate({ sessionId, cwd })
+      .then(() => { store.reduce(s => setWorkspaceState(s, null)) })
+      .catch(() => { /* host refused — keep the active workspace */ })
+  }
+
+  /** Best-effort restore of one violation (user-invoked). */
+  const rollbackOne = (callId: string): void => {
+    if (sessionId === undefined || violationBusy) return
+    setViolationBusy(true)
+    api.workspaceRollback({ sessionId, cwd }, callId)
+      .then((result) => {
+        setViolationNote(result.message)
+        refreshViolations(false)
+      })
+      .catch((error: unknown) => {
+        setViolationNote(error instanceof Error ? error.message : String(error))
+      })
+      .finally(() => { setViolationBusy(false) })
+  }
+
   const busy = upload !== null
 
   return (
@@ -240,28 +295,94 @@ export function TreePanel(props: {
         <div className={clsx(css.editorSearchHint, uploadFailed && css.editorError)} title={uploadStatus}>{uploadStatus}</div>
       )}
       {needle === '' ? (
-        <FileTree
-          sessionId={sessionId}
-          cwd={cwd}
-          store={store}
-          expanded={expanded}
-          revealed={revealed}
-          onToggle={onToggle}
-          onOpenFile={onOpenFile}
-          onOpenFileNewTab={onOpenFileNewTab}
-          onOpenFileSide={onOpenFileSide}
-          openWithTargets={openWithTargets}
-          openWithPinned={openWithPinned}
-          openWithSsh={openWithSsh}
-          onOpenWith={onOpenWith}
-          onToggleOpenWithPin={onToggleOpenWithPin}
-          onReferenceFile={onReferenceFile}
-          onPathRenamed={onPathRenamed}
-          onPathDeleted={onPathDeleted}
-          refreshTick={refreshTick}
-          onUploadRequest={startUpload}
-          busy={busy}
-        />
+        <>
+          {workspace !== null && (
+            <div className={css.wsBar}>
+              <span className={css.wsBarTitle} title={workspace.manifestPath}>{workspace.name}</span>
+              <span className={css.wsBarMeta}>{t('workspaceRoots', { n: workspace.roots.length })}</span>
+              {violations.length > 0 && (
+                <button
+                  type="button"
+                  className={clsx(css.wsViolationChip, violationsOpen && css.wsViolationChipOpen)}
+                  aria-expanded={violationsOpen}
+                  onClick={() => { setViolationsOpen(open => !open) }}
+                  title={t('workspaceViolationsTitle')}
+                >
+                  {t('workspaceViolations', { n: violations.length })}
+                </button>
+              )}
+              <button
+                type="button"
+                className={css.iconButton}
+                aria-label={t('workspaceDeactivate')}
+                title={t('workspaceDeactivate')}
+                onClick={exitWorkspace}
+              >
+                <IconCloseFill14 />
+              </button>
+            </div>
+          )}
+          {violationsOpen && violations.length > 0 && (
+            <div className={css.wsViolations} role="list">
+              {violationNote !== null && (
+                <div className={clsx(css.editorSearchHint, css.editorError)}>{violationNote}</div>
+              )}
+              {violations.map(violation => (
+                <div key={violation.callId} className={css.wsViolationRow} role="listitem">
+                  <button
+                    type="button"
+                    className={css.wsViolationPath}
+                    title={violation.path}
+                    onClick={() => { onOpenFile(violation.path) }}
+                  >
+                    {violation.path}
+                  </button>
+                  <span className={css.wsViolationMeta}>
+                    {t('workspaceViolationMeta', {
+                      root: violation.rootLabel,
+                      kind: violation.kind === 'edit' ? t('changesEdit') : t('changesWrite'),
+                    })}
+                  </span>
+                  {violation.canRestore && (
+                    <button
+                      type="button"
+                      className={css.iconButton}
+                      aria-label={t('workspaceRollback')}
+                      title={t('workspaceRollback')}
+                      disabled={violationBusy}
+                      onClick={() => { rollbackOne(violation.callId) }}
+                    >
+                      {t('workspaceRollback')}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          <FileTree
+            sessionId={sessionId}
+            cwd={cwd}
+            store={store}
+            expanded={expanded}
+            revealed={revealed}
+            onToggle={onToggle}
+            onOpenFile={onOpenFile}
+            onOpenFileNewTab={onOpenFileNewTab}
+            onOpenFileSide={onOpenFileSide}
+            openWithTargets={openWithTargets}
+            openWithPinned={openWithPinned}
+            openWithSsh={openWithSsh}
+            onOpenWith={onOpenWith}
+            onToggleOpenWithPin={onToggleOpenWithPin}
+            onReferenceFile={onReferenceFile}
+            onPathRenamed={onPathRenamed}
+            onPathDeleted={onPathDeleted}
+            refreshTick={refreshTick}
+            onUploadRequest={startUpload}
+            busy={busy}
+            workspace={workspace}
+          />
+        </>
       ) : (
         <div className={css.explorerBody}>
           {error !== null && <div className={clsx(css.editorSearchHint, css.editorError)}>{error}</div>}

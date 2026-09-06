@@ -212,10 +212,10 @@ describe('built-in tab registrations', () => {
 })
 
 describe('built-in file viewer registrations', () => {
-  it('registers the 6 built-in file viewers (office previews live in the recommended office plugin)', () => {
+  it('registers the 7 built-in file viewers (office previews live in the recommended office plugin)', () => {
     const { service } = setup()
     expect(service.getFileViewers().map(v => v.id).sort()).toEqual(
-      ['binary-download', 'code', 'html', 'image', 'markdown', 'pdf'],
+      ['binary-download', 'code', 'dsh-workspace', 'html', 'image', 'markdown', 'pdf'],
     )
     // Office previews are not built in: docx/xlsx/pptx files fall through to
     // the download-only binary viewer (or a registered office plugin).

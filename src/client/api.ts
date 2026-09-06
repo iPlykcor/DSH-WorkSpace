@@ -96,6 +96,47 @@ export interface FsTextResult { kind: 'text'; content: string; truncated: boolea
  *  `head` carries the first bytes (base64) for viewer detect sniffing. */
 export interface FsBinaryResult { kind: 'binary'; size: number; truncated: boolean; head: string }
 
+/** Per-folder permission of a multi-root workspace (mirror of the host). */
+export type WsAccess = 'readWrite' | 'readOnly'
+
+/** One resolved root of the active multi-root workspace (host snapshot shape). */
+export interface WorkspaceRootSnapshot {
+  /** Lexical absolute path of the root. */
+  path: string
+  /** Display label (folder name override, else the base name). */
+  label: string
+  access: WsAccess
+  /** Whether the canonical directory currently exists. */
+  exists: boolean
+  /** False = the implicit session-cwd root the host appended. */
+  listed: boolean
+}
+
+/** The active multi-root workspace snapshot (workspace.state/activate). */
+export interface WorkspaceSnapshot {
+  manifestPath: string
+  name: string
+  /** The session cwd this workspace was built from. */
+  cwd: string
+  /** Path-match case folding on this host (win32 true). */
+  ci: boolean
+  roots: WorkspaceRootSnapshot[]
+  /** Activation timestamp (epoch ms). */
+  activatedAt: number
+}
+
+/** One model write that landed in a read-only root (workspace.violations). */
+export interface WorkspaceViolation {
+  callId: string
+  kind: 'write' | 'edit'
+  /** Absolute display path of the written file. */
+  path: string
+  /** Label of the read-only root it landed in. */
+  rootLabel: string
+  time: number
+  canRestore: boolean
+}
+
 /**
  * One jobs.output response: the output the MODEL has read so far for the
  * job (replayed from the owner session's event log — the model's
@@ -278,6 +319,21 @@ export const api = {
     call<FsTextResult | FsBinaryResult>('fs.read', scopePayload(scope, { path }), signal),
   fsWrite: (scope: SessionScope, path: string, content: string) =>
     call<{ ok: true }>('fs.write', scopePayload(scope, { path, content })),
+  /** The active multi-root workspace of the session (null = legacy single root). */
+  workspaceState: (scope: SessionScope, signal?: AbortSignal) =>
+    call<{ workspace: WorkspaceSnapshot | null }>('workspace.state', scopePayload(scope, {}), signal),
+  /** Activate a `.dsh-workspace` manifest file for the session. */
+  workspaceActivate: (scope: SessionScope, path: string) =>
+    call<{ workspace: WorkspaceSnapshot; warnings: string[] }>('workspace.activate', scopePayload(scope, { path })),
+  /** Drop the session's active workspace (back to the legacy single root). */
+  workspaceDeactivate: (scope: SessionScope) =>
+    call<{ ok: true }>('workspace.deactivate', scopePayload(scope, {})),
+  /** Model writes that landed in read-only roots since activation. */
+  workspaceViolations: (scope: SessionScope, signal?: AbortSignal) =>
+    call<{ violations: WorkspaceViolation[] }>('workspace.violations', scopePayload(scope, {}), signal),
+  /** Best-effort restore of one violation (user-invoked). */
+  workspaceRollback: (scope: SessionScope, callId: string) =>
+    call<{ ok: boolean; message: string }>('workspace.rollback', scopePayload(scope, { callId })),
   /** Rename one tree row within its directory (single-segment name; the
    *  server refuses existing destinations, the workspace root, and — while
    *  the fence is armed — anything resolving outside the workspace). */

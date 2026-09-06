@@ -22,10 +22,11 @@
  * and `icon` — so the Side card settings page can render the enable/disable
  * inventory without hardcoding (eating our own dogfood).
  */
-import { IconCodeOutline16, IconDownloadOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCodeOutline16, IconDownloadOutline16, IconFolderOpen16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { lazyChunkComponent } from '../lazy-chunk.tsx'
 import { PdfView } from '../PdfView.tsx'
 import { BinaryDownload } from '../binary-download.tsx'
+import { WorkspaceFileView } from '../WorkspaceFileView.tsx'
 import {
   IconImageOutline16,
   IconMarkdownOutline16,
@@ -99,6 +100,16 @@ export function builtinViewers(): readonly FileViewerDescriptor[] {
         }],
       },
       component: (props) => <LazyTextEditor {...props} />,
+    },
+    {
+      // Multi-root workspace manifests: a summary/apply view instead of a
+      // text buffer (see WorkspaceFileView.tsx).
+      id: 'dsh-workspace',
+      title: () => t('viewerWorkspace'),
+      icon: (size: number) => <IconFolderOpen16 size={size} />,
+      exts: ['dsh-workspace'],
+      fetchStrategy: 'fsRead',
+      component: (props) => <WorkspaceFileView {...props} />,
     },
     {
       id: 'code',

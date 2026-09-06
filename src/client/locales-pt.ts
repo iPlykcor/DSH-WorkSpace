@@ -431,4 +431,22 @@ export const pt: Record<string, string> = {
   pluginCodeNavName: 'Navegador de pré-visualização de código',
   pluginVideoPreviewName: 'Pré-visualização de vídeo',
   presetDshDesktopDesc: 'Modo avançado Electron (sem moldura): o macOS reserva 20px no topo; o Windows reserva 32px para a barra de título sem WCO',
+
+
+  // dshws (.dsh-workspace) copy: en fallback pending native review
+  viewerWorkspace: 'Multi-root workspace',
+  workspaceApplied: 'Applied to the sidebar',
+  workspaceApply: 'Apply workspace',
+  workspaceApplyFailed: 'Apply failed: {message}',
+  workspaceAutoApplyOff: 'No auto-apply (use Apply)',
+  workspaceAutoApplyOn: 'Auto-applies when opened',
+  workspaceDeactivate: 'Exit multi-root workspace',
+  workspaceFolderReadOnly: 'Read-only folder (no writes)',
+  workspaceInvalidManifest: 'Not a valid .dsh-workspace manifest',
+  workspaceMissingFolder: 'missing',
+  workspaceRollback: 'Rollback',
+  workspaceRoots: '{n} roots',
+  workspaceViolationMeta: '{root} \u00b7 {kind}',
+  workspaceViolations: '{n} read-only write(s)',
+  workspaceViolationsTitle: 'Model writes into read-only folders',
 }

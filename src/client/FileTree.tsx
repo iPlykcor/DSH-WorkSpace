@@ -28,7 +28,7 @@ import {
   IconEditOutline16, IconLinkOutline16, IconTrashOutline16, Menu, Modal, type MenuEntry, type MenuItem, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { SiCursor, SiZedindustries } from 'react-icons/si'
-import { VscFile, VscFolder, VscFolderOpened, VscLinkExternal, VscPin, VscPinned } from 'react-icons/vsc'
+import { VscFile, VscFolder, VscFolderOpened, VscLinkExternal, VscLock, VscPin, VscPinned } from 'react-icons/vsc'
 import { api, downloadUrl, isOutsideWorkspaceMessage, type FsEntry } from './api.ts'
 import { FenceErrorNotice } from './FenceErrorNotice.tsx'
 import { IconUploadOutline16, IconVscode16 } from './icons.tsx'
@@ -37,7 +37,8 @@ import { useSubmenuFlip } from './menu-flip.ts'
 import type { OpenWithTarget } from './open-with.ts'
 import { relativeTo } from './paths.ts'
 import { t } from './locales.ts'
-import type { SidebarStore } from './state.ts'
+import type { SidebarStore, SidebarWorkspaceState, SidebarWsRoot } from './state.ts'
+import { isWsLockedPath } from './workspace-model.ts'
 import { uploadItemsFromDrop, uploadItemsFromFiles, type UploadItem } from './upload.ts'
 import css from './sidebar.module.css'
 
@@ -145,8 +146,10 @@ export function FileTree(props: {
   onUploadRequest: (dir: string, items: UploadItem[]) => void
   /** True while an upload is in flight (drops are ignored). */
   busy: boolean
+  /** The active multi-root workspace snapshot (null = legacy single cwd). */
+  workspace?: SidebarWorkspaceState | null
 }) {
-  const { sessionId, cwd, store, expanded, revealed, onToggle, onOpenFile, onOpenFileNewTab, onOpenFileSide, openWithTargets, openWithPinned, openWithSsh, onOpenWith, onToggleOpenWithPin, onReferenceFile, onPathRenamed, onPathDeleted, refreshTick, onUploadRequest, busy } = props
+  const { sessionId, cwd, store, expanded, revealed, onToggle, onOpenFile, onOpenFileNewTab, onOpenFileSide, openWithTargets, openWithPinned, openWithSsh, onOpenWith, onToggleOpenWithPin, onReferenceFile, onPathRenamed, onPathDeleted, refreshTick, onUploadRequest, busy, workspace = null } = props
   const [data, setData] = useState<Record<string, LevelData>>({})
   const dataRef = useRef(data)
   /** The row whose path was just copied ("copied" label replaces its button). */
@@ -189,6 +192,12 @@ export function FileTree(props: {
     setDropRect(null)
   }
 
+  /** Whether an active multi-root workspace is applied (vs legacy single root). */
+  const multiRoot = workspace !== null && workspace !== undefined && workspace.roots.length > 0
+  /** Whether `path` lies inside a read-only root of the active workspace. */
+  const lockedPath = (path: string): boolean =>
+    workspace !== null && workspace !== undefined && isWsLockedPath(path, workspace)
+
   /**
    * Drop handlers: always swallow the event (a dropped file must never open
    * in the browser), then report the target directory to the caller. A drop
@@ -199,6 +208,10 @@ export function FileTree(props: {
    */
   const reportDrop = (dir: string, data: DataTransfer | undefined): void => {
     if (busy) return
+    if (lockedPath(dir)) {
+      setActionError(t('workspaceFolderReadOnly'))
+      return
+    }
     void uploadItemsFromDrop(data).then((items) => {
       if (items.length > 0) onUploadRequest(dir, items)
     })
@@ -208,6 +221,10 @@ export function FileTree(props: {
     event.preventDefault()
     event.stopPropagation()
     resetDrop()
+    // Multi-root: the body has no single root to receive a drop — drops must
+    // target a specific (writable) root row or directory. The legacy single
+    // root keeps dropping onto the whole tree body (its cwd).
+    if (multiRoot) return
     if (cwd !== undefined) reportDrop(cwd, event.dataTransfer)
   }
   const handleDirDrop = (event: DragEvent, dir: string): void => {
@@ -225,6 +242,7 @@ export function FileTree(props: {
     if (!isFileDrag(event)) return
     event.preventDefault()
     event.stopPropagation()
+    if (multiRoot) return // no whole-body zone in multi-root (see handleBodyDrop)
     dropDepth.current += 1
     if (busy) return
     // First entry: anchor the portaled drop zone to the body's rect.
@@ -245,6 +263,7 @@ export function FileTree(props: {
     if (!isFileDrag(event)) return
     event.preventDefault()
     event.stopPropagation()
+    if (multiRoot) return // no whole-body drop target (see handleBodyDrop)
     event.dataTransfer.dropEffect = busy ? 'none' : 'copy'
     if (busy) return
     // Rows stop propagation, so this only fires over non-row regions: the
@@ -256,7 +275,7 @@ export function FileTree(props: {
     if (!isFileDrag(event)) return
     event.preventDefault()
     event.stopPropagation()
-    event.dataTransfer.dropEffect = busy ? 'none' : 'copy'
+    event.dataTransfer.dropEffect = busy || lockedPath(dir) ? 'none' : 'copy'
     if (busy) return
     setDropTarget(dir)
   }
@@ -352,12 +371,17 @@ export function FileTree(props: {
 
   useEffect(() => {
     // Load the visible set; already-loaded levels (kept in the cache) are
-    // not refetched. Only the refresh tick wipes the cache.
-    const root = cwd
-    if (root === undefined) return
-    loadDir(root)
+    // not refetched. Only the refresh tick wipes the cache. Multi-root: each
+    // existing root seeds its top level like the legacy cwd root did.
+    if (multiRoot) {
+      for (const root of workspace.roots) {
+        if (root.exists) loadDir(root.path)
+      }
+    } else if (cwd !== undefined) {
+      loadDir(cwd)
+    }
     for (const dir of expanded) loadDir(dir)
-  }, [cwd, expanded, refreshTick, loadDir])
+  }, [cwd, workspace, multiRoot, expanded, refreshTick, loadDir])
 
   // Bring a "Show in folder" reveal into view: the ancestors expand above
   // (revealPaths), but the row may not be scrolled into sight — a reveal on
@@ -510,6 +534,72 @@ export function FileTree(props: {
         submenu,
       },
     ]
+  }
+
+  /**
+   * One multi-root workspace root: a header row (VSCode "workspace folder"
+   * style) that toggles the root's own level, shows a lock badge when the
+   * folder is read-only, dims + refuses expansion when the directory is
+   * missing, and is the drop target for uploads into that root. Drops onto a
+   * read-only root are refused client-side (the host 403s anyway).
+   */
+  const renderWorkspaceRoot = (root: SidebarWsRoot): ReactNode => {
+    const open = expandedSet.has(root.path)
+    const locked = root.access === 'readOnly'
+    return (
+      <div key={`dshws-root:${root.path}`}>
+        <div
+          role="button"
+          tabIndex={0}
+          aria-expanded={open}
+          className={clsx(
+            css.explorerRow, css.explorerDir,
+            !root.exists && css.explorerBroken,
+            dropTarget === root.path && css.explorerRowDropTarget,
+          )}
+          style={{ paddingLeft: 6 }}
+          title={locked ? t('workspaceFolderReadOnly') : root.path}
+          onClick={() => { if (root.exists) onToggle(root.path) }}
+          onKeyDown={(event) => {
+            if ((event.key === 'Enter' || event.key === ' ') && root.exists) {
+              event.preventDefault()
+              onToggle(root.path)
+            }
+          }}
+          onDragOver={(event) => { if (root.exists) handleRowDragOver(event, root.path) }}
+          onDrop={(event) => { if (root.exists) handleDirDrop(event, root.path) }}
+        >
+          {open ? <VscFolderOpened size={14} /> : <VscFolder size={14} />}
+          <span className={css.explorerName}>{root.label}</span>
+          {!root.exists && <span className={css.explorerMissing}>{t('workspaceMissingFolder')}</span>}
+          {locked && (
+            <VscLock size={12} className={css.explorerLock} aria-label={t('workspaceFolderReadOnly')} />
+          )}
+          {copiedPath === root.path
+            ? <span className={css.explorerCopied}>{t('copied')}</span>
+            : (
+              <button
+                type="button"
+                className={css.explorerRef}
+                aria-label={t('referenceFile')}
+                title={t('referenceFile')}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onReferenceFile(root.path, true)
+                }}
+              >
+                {t('referenceFile')}
+              </button>
+            )}
+        </div>
+        {open && root.exists && data[root.path] !== undefined && renderLevel(root.path, 1)}
+        {open && !root.exists && (
+          <div className={clsx(css.explorerRow, css.explorerError)} style={{ paddingLeft: 28 }}>
+            {t('workspaceMissingFolder')}
+          </div>
+        )}
+      </div>
+    )
   }
 
   const root = cwd
@@ -678,6 +768,23 @@ export function FileTree(props: {
     >
       {root === undefined ? (
         <div className={css.explorerEmpty}>{t('noSession')}</div>
+      ) : multiRoot ? (
+        <>
+          {actionError !== null && (
+            <div className={css.explorerActionError} role="alert">
+              <span className={css.explorerActionErrorText}>{actionError}</span>
+              <button
+                type="button"
+                className={css.explorerActionErrorClose}
+                aria-label={t('dismiss')}
+                onClick={() => { setActionError(null) }}
+              >
+                <IconCloseFill14 />
+              </button>
+            </div>
+          )}
+          {workspace.roots.map(renderWorkspaceRoot)}
+        </>
       ) : (
         <>
           {/* The last mutation failure (rename/delete): dismissable, raw
@@ -725,7 +832,7 @@ export function FileTree(props: {
           {data[root] !== undefined && renderLevel(root, 1)}
         </>
       )}
-      {dropOver && dropRect !== null && createPortal(
+      {!multiRoot && dropOver && dropRect !== null && createPortal(
         /*
          * The sidebar's drop surface, portaled to document.body at z-1001 —
          * above DSH's own whole-page drop mask (z-1000, see InputBar's
@@ -805,15 +912,21 @@ export function FileTree(props: {
           ...(rowMenu?.isDir === false
             ? [{ id: 'download', label: t('download'), icon: <IconDownloadOutline16 size={14} /> }]
             : []),
-          // Upload into a directory (incl. the workspace root row).
-          ...(rowMenu?.isDir === true
+          // Upload into a directory (incl. the workspace root row) — never
+          // offered inside a read-only root (the host 403s as a backstop).
+          ...(rowMenu?.isDir === true && !(rowMenu !== null && lockedPath(rowMenu.path))
             ? [{ id: 'upload-here', label: t('uploadHere'), icon: <IconUploadOutline16 size={14} /> }]
             : []),
           { id: 'relative', label: t('copyRelative'), icon: <IconCopyOutline16 size={14} /> },
           { id: 'absolute', label: t('copyAbsolute'), icon: <IconCopyOutline16 size={14} /> },
-          // Explorer mutations close the menu; the workspace ROOT row is the
-          // session itself — never renamable or deletable (server double-guards).
-          ...(rowMenu !== null && rowMenu.path !== cwd
+          // Explorer mutations close the menu; workspace ROOT rows (the
+          // legacy session cwd or one of the multi-root roots) are never
+          // renamable or deletable (the server double-guards), and rows
+          // inside a read-only root get no mutations at all.
+          ...(rowMenu !== null
+            && rowMenu.path !== cwd
+            && !(workspace?.roots.some(root => root.path === rowMenu!.path) ?? false)
+            && !lockedPath(rowMenu.path)
             ? [
                 { id: 'mutate-sep', type: 'separator' } as MenuEntry,
                 { id: 'rename', label: t('rename'), icon: <IconEditOutline16 size={14} /> },

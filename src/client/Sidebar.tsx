@@ -38,7 +38,8 @@ import {
   BOTTOM_MIN, PANEL_MIN, agentUuidOf, firstLeaf, floatTab,
   isAgentTabId, leafWithTab, migrateBottomTabs,
   moveTab, moveTabToEdge, openDiffTab, resizeSplitIn,
-  setBottomHeight, setTabPin, setWidth, toggleBottomPanel, toggleExpanded, togglePanel,
+  sanitizeWorkspaceState, setBottomHeight, setTabPin, setWidth, setWorkspaceState,
+  toggleBottomPanel, toggleExpanded, togglePanel,
   type DropZone, type SidebarState, type SidebarStore, type SidebarTab,
 } from './state.ts'
 import { getPinnedHomeScope } from './pinned.ts'
@@ -58,7 +59,7 @@ import { FreeWindowLayer, useFloatDragout } from './sidebar/free-windows.tsx'
 import type { TabDragPayload } from './TabBar.tsx'
 import { relativeTo } from './paths.ts'
 import { t } from './locales.ts'
-import { api } from './api.ts'
+import { api, type WorkspaceSnapshot } from './api.ts'
 import css from './sidebar.module.css'
 
 /**
@@ -330,6 +331,41 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
     return () => { cancelled = true }
   }, [sessionId, summaryCwd])
   const cwd = summaryCwd ?? fetchedCwd
+
+  /**
+   * Multi-root workspace sync (once per session attach): the HOST is the
+   * authority. When it has an active workspace its snapshot replaces the
+   * persisted one (the manifest file may have been edited); when it reports
+   * none but the persisted state carries a manifest path (a host restart
+   * dropped the in-memory registry), re-activate from the file; failures
+   * (deleted manifest…) fall back to the legacy single root.
+   */
+  const workspaceSyncedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (sessionId === undefined || workspaceSyncedRef.current === sessionId) return
+    workspaceSyncedRef.current = sessionId
+    const applySnapshot = (workspace: WorkspaceSnapshot | null): void => {
+      const current = store.getSnapshot()
+      if (current.sessionId !== sessionId) return
+      if (workspace === null) return
+      const clean = sanitizeWorkspaceState(workspace)
+      const existing = current.state?.workspace
+      if (existing !== null && existing !== undefined && existing.manifestPath === clean?.manifestPath
+        && existing.roots.length === clean?.roots.length) return
+      store.reduce(s => setWorkspaceState(s, clean))
+    }
+    api.workspaceState({ sessionId, cwd })
+      .then(result => {
+        if (result.workspace !== null) { applySnapshot(result.workspace); return }
+        // Host lost it (restart): re-activate from the persisted manifest.
+        const stored = store.getSnapshot().state?.workspace
+        if (stored === null || stored === undefined || stored.manifestPath === '') return
+        api.workspaceActivate({ sessionId, cwd }, stored.manifestPath)
+          .then(activated => { applySnapshot(activated.workspace) })
+          .catch(() => { store.reduce(s => setWorkspaceState(s, null)) })
+      })
+      .catch(() => { /* offline first paint: the persisted snapshot stands */ })
+  }, [sessionId, cwd, store])
 
   // The + menu options ride a memo so the two Workbenches share ONE array
   // identity across renders that did not change the store (drag state,
