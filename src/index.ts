@@ -977,13 +977,6 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
       ? ensureWorkspacePath(cwd, raw, fenceEnabledOf(() => settingsFace))
       : ensureWsReadTarget(cwd, raw, wsReadBases(active), active.ci)
   }
-  const wsWriteTarget = async (sessionId: string, cwd: string, raw: string): Promise<string> => {
-    const active = workspaceRegistry.get(sessionId)
-    if (active === undefined) return ensureWorkspaceWritePath(cwd, raw, fenceEnabledOf(() => settingsFace))
-    const canonical = await ensureWsWriteTarget(cwd, raw, wsReadBases(active), active.ci)
-    assertWsWriteAllowed(active, canonical, raw)
-    return canonical
-  }
   ctx.effect(() => () => workspaceRegistry.dispose(), 'dshws: workspace registry teardown')
   const api = buildApi(ctx, ptyManager, agentPtyRegistry, resolved, terminalShell, () => settingsFace, workspaceRegistry)
   ctx.effect(() => ctx.webServer.register({

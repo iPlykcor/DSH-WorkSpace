@@ -330,7 +330,7 @@ export function autoActivateOf(settings: DshWorkspaceSettings | undefined): bool
  * when the caller's platform treats paths case-insensitively (`ci`).
  */
 export function normalizeWsPath(path: string, ci: boolean): string {
-  let value = path.replace(/[\\/]+/g, '/').replace(/\/$/, '')
+  const value = path.replace(/[\\/]+/g, '/').replace(/\/$/, '')
   const edge = value === '' ? '/' : value
   return ci ? edge.toLowerCase() : edge
 }
