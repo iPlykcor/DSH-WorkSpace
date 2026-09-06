@@ -66,6 +66,8 @@ export function TextEditor(props: FileViewerProps) {
   const [draft, setDraft] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
+  /** The last save-failure reason as text (shown after "Save failed"). */
+  const [saveError, setSaveError] = useState<string | null>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<CodeMirrorView | null>(null)
   const savingRef = useRef(false)
@@ -115,6 +117,7 @@ export function TextEditor(props: FileViewerProps) {
     setDraft(null)
     setDirty(false)
     setSaveState('idle')
+    setSaveError(null)
     selectionPopup.hide()
     // hide() reads a live ref; the reset must fire only on a content (file)
     // swap, and the hook object's identity churns on every render.
@@ -300,14 +303,20 @@ export function TextEditor(props: FileViewerProps) {
     if (view === null || savingRef.current) return
     savingRef.current = true
     setSaveState('saving')
+    setSaveError(null)
     api.fsWrite(scope, path, view.state.doc.toString()).then(() => {
       savingRef.current = false
       setDraft(null)
       setDirty(false)
       setSaveState('saved')
-    }).catch(() => {
+      setSaveError(null)
+    }).catch((error: unknown) => {
       savingRef.current = false
       setSaveState('failed')
+      // Surface the host reason (e.g. "…is inside the read-only workspace
+      // folder …") instead of a bare "Save failed"; the read-only enforcement
+      // still blocks the write — this only explains why.
+      setSaveError(error instanceof Error ? error.message : String(error))
     })
   }
 
@@ -471,7 +480,19 @@ export function TextEditor(props: FileViewerProps) {
             <IconCheckOutline16 />
           </button>
         )}
-        {saveLabel !== '' && <span className={clsx(css.editorStatus, saveState === 'failed' && css.editorStatusError)}>{saveLabel}</span>}
+        {saveLabel !== '' && (
+          <span
+            className={clsx(css.editorStatus, saveState === 'failed' && css.editorStatusError)}
+            title={saveState === 'failed' && saveError !== null ? saveError : saveLabel}
+          >
+            {saveLabel}
+          </span>
+        )}
+        {saveState === 'failed' && saveError !== null && (
+          <span className={clsx(css.editorStatus, css.editorStatusError)} title={saveError}>
+            {saveError}
+          </span>
+        )}
       </div>
       )}
       {editable && (
