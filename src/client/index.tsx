@@ -453,7 +453,7 @@ export function apply(ctx: Context): void {
       order: 20,
       locale: LOCALE_NS,
       label: () => t('files'),
-      inject: (sessionId: string) => ({ sessionId }),
+      inject: (sessionId: string) => ({ sessionId, store: sidebarStore, ctx }),
     }, CenterFileView))
   } catch (error) {
     fail('load', error)
