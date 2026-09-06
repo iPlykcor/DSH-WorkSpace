@@ -55,6 +55,7 @@
 
 ## 5. 开发规则速查
 
+- **先读后改（fs 观察策略）**：对已存在文件执行 `edit` / `write` 前，**必须先 `read` 该文件**（链式工具由 DSH 运行时强制要求，否则报 `edit requires reading … first`）；批量修改时**先并行读全部目标文件，再逐个编辑**。这条随本仓库分发，任何 clone 本 fork 的 agent 都会被注入并遵守。
 - **构建纯度门**：client bundle 禁止 value-import `@dsh-external/*` 或非白名单 `@deepseek-ai/*`（`tsdown.config.ts` 拦截）；`import type {}` 被擦除不触发——类型可共享，运行时符号不行；跨插件交互走 `ctx.betterSidebar` 方法调用。
 - **懒加载 chunk**：重依赖（xterm/CodeMirror/mermaid）在独立 bundle（`lib/client-<name>.js`），经 `/sidebar/bundle` 按需下发、`globalThis.__dshChunks__` 物化（`src/client/chunk-loader.ts`），**核心 bundle 禁止静态 import `src/client/chunks/*`**。
 - **i18n**：词典在 `betterSidebar` 命名空间，跟随 DSH `ctx.locale`；**新增 zh key 必须同步 `src/client/locales-ja.ts` 的 ja 翻译**（否则 ja 下回退 en）。渲染 `MarkdownText` 必须经 `markdownTextProps()`（§3 第 3 条）。
