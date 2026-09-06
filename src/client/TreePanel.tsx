@@ -20,7 +20,7 @@ import clsx from 'clsx'
 import { IconCloseFill14, IconFolderOpen16, IconRefreshOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { api, type WorkspaceViolation } from './api.ts'
 import type { SidebarStore } from './state.ts'
-import { setWorkspaceState } from './state.ts'
+import { sanitizeWorkspaceState, setWorkspaceState } from './state.ts'
 import { FileTree } from './FileTree.tsx'
 import { IconUploadOutline16 } from './icons.tsx'
 import type { OpenWithTarget } from './open-with.ts'
@@ -228,6 +228,31 @@ export function TreePanel(props: {
       .finally(() => { setViolationBusy(false) })
   }
 
+  /** One-line outcome of a workspace re-apply via the refresh icon ('' hides). */
+  const [wsRefreshNote, setWsRefreshNote] = useState<string | null>(null)
+  /**
+   * Refresh icon: with an active multi-root workspace it is a ONE-CLICK
+   * re-apply — re-read the current manifest file (picking up edited
+   * permissions / added or removed roots) and refresh the tree; without one
+   * it just reloads the file listing (the legacy refresh behavior).
+   */
+  const refreshFiles = (): void => {
+    if (workspace !== null && sessionId !== undefined) {
+      setWsRefreshNote(null)
+      api.workspaceActivate({ sessionId, cwd }, workspace.manifestPath)
+        .then((result) => {
+          store.reduce(s => setWorkspaceState(s, sanitizeWorkspaceState(result.workspace)))
+          setWsRefreshNote(result.warnings.length > 0 ? result.warnings.join('; ') : t('workspaceApplied'))
+        })
+        .catch((error: unknown) => {
+          setWsRefreshNote(error instanceof Error ? error.message : String(error))
+        })
+        .finally(() => { setRefreshTick(tick => tick + 1) })
+      return
+    }
+    setRefreshTick(tick => tick + 1)
+  }
+
   const busy = upload !== null
 
   return (
@@ -245,7 +270,7 @@ export function TreePanel(props: {
           className={css.iconButton}
           aria-label={t('refresh')}
           title={t('refresh')}
-          onClick={() => { setRefreshTick(tick => tick + 1) }}
+          onClick={refreshFiles}
         >
           <IconRefreshOutline16 size={14} />
         </button>
@@ -293,6 +318,11 @@ export function TreePanel(props: {
       </div>
       {uploadStatus !== '' && (
         <div className={clsx(css.editorSearchHint, uploadFailed && css.editorError)} title={uploadStatus}>{uploadStatus}</div>
+      )}
+      {wsRefreshNote !== null && (
+        <div className={css.editorSearchHint} title={wsRefreshNote}>
+          {wsRefreshNote}
+        </div>
       )}
       {needle === '' ? (
         <>
