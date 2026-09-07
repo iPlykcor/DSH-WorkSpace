@@ -271,7 +271,19 @@ GitHub topic [`dsh-better-sidebar`](https://github.com/topics/dsh-better-sidebar
 
 ## 🆕 最近更新
 
-**支持的 DSH 版本**：<a href="https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions"><img alt="支持的 DSH 版本（v0.18.0 正式版）：0.1.2-rc.1+" src="https://img.shields.io/badge/DSH-0.1.2--rc.1%2B-4d6bfe" /></a> · 完整发布历史见 [Releases](https://github.com/omdsh-dev/DSH-better-sidebar/releases)
+**支持的 DSH 版本**：<a href="https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions"><img alt="支持的 DSH 版本（v0.18.0 正式版）：0.1.2-rc.1+" src="https://img.shields.io/badge/DSH-0.1.2--rc.1%2B-4d6bfe" /></a> · 完整发布历史见 [Releases](https://github.com/iPlykcor/DSH-WorkSpace/releases)
+
+### v0.0.2（本 fork，最新）
+
+- 🔗 **mp4 / 音视频内联预览**：侧边栏与中间“文件”视图直接播放 `.mp4` 等视频/音频；新增 `/sidebar/video` 流式宿主路由，支持 HTTP Range（206），进度条可拖、不受 20MB mediaLimit 限制。详见 [CHANGELOG.md](./CHANGELOG.md)。
+
+### v0.0.1（本 fork）
+
+- 📁 **多根工作区**：`*.dsh-workspace`（JSONC）清单一次列出多个根目录；打开即应用为多根树，按会话隔离、刷新自动恢复。
+- 🔒 **目录读写权限**：每目录 `readWrite | readOnly`（未标注默认只读）；侧边栏读/写/改名/删除/上传与 Git 写类按策略硬拦截（只读根 403 + UI 禁用）。
+- ⚠️ **只读越权检测**：模型写入只读目录时，基于会话事件流检测 + 侧边栏告警 + 最佳努力还原。
+- 🗂️ **中心列文件视图**：向 `conversation.view` 注册“文件”页签，与“对话 / 轨迹”并排；文本可编辑、图片/PDF 预览。
+- 🔄 **一键刷新生效 / 折叠**：改完清单点 ⟳ 即重读；新应用默认全部收起 + 一键折叠全部。
 
 ### v0.18.0
 
@@ -478,7 +490,7 @@ GitHub topic [`dsh-better-sidebar`](https://github.com/topics/dsh-better-sidebar
 - 🖥️ **终端 shell 可配置**：设置项自定义 shell，Windows 自动探测 pwsh（[#95](https://github.com/omdsh-dev/DSH-better-sidebar/pull/95)）
 - 📝 **编辑器新增语言**：C# / Kotlin / Swift 语法高亮（[#120](https://github.com/omdsh-dev/DSH-better-sidebar/pull/120)）
 - 🧭 **设置页导航图标**：设置页导航图标与布局优化（[#114](https://github.com/omdsh-dev/DSH-better-sidebar/pull/114)）
-- ➕ **推荐插件目录新增**：`dsh-git-remotes`——Git 远程 Tab（分支/上游/ahead-behind、fetch 可 prune、ff-only pull、确认后才 push，不替换内置暂存/提交）（[#91](https://github.com/omdsh-dev/DSH-better-sidebar/pull/91)）；`dsh-video-preview`——视频内联预览（.mp4/.webm/.mov/.mkv/.avi 等，自带 /video 宿主路由支持 HTTP Range 206 拖进度条，不受 20MB mediaLimit 限制）（[#126](https://github.com/omdsh-dev/DSH-better-sidebar/pull/126)）
+- ➕ **推荐插件目录新增**：`dsh-git-remotes`——Git 远程 Tab（分支/上游/ahead-behind、fetch 可 prune、ff-only pull、确认后才 push，不替换内置暂存/提交）（[#91](https://github.com/omdsh-dev/DSH-better-sidebar/pull/91)）
 
 **🐛 修复**
 

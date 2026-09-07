@@ -285,6 +285,7 @@ export const tr: Record<string, string> = {
   viewerCode: 'Kod',
   viewerBinary: 'İkili indirme',
   viewerHtml: 'HTML',
+  viewerVideo: 'Video',
   browser: 'Tarayıcı',
   browserPlaceholder: 'Bir URL girin, örn. example.com',
   browserGo: 'Git',

@@ -27,11 +27,14 @@ import { lazyChunkComponent } from '../lazy-chunk.tsx'
 import { PdfView } from '../PdfView.tsx'
 import { BinaryDownload } from '../binary-download.tsx'
 import { WorkspaceFileView } from '../WorkspaceFileView.tsx'
+import { VideoView } from '../VideoView.tsx'
+import { MEDIA_EXTS } from '../media.ts'
 import {
   IconImageOutline16,
   IconMarkdownOutline16,
   IconPdfOutline16,
   IconHtmlOutline16,
+  IconVideoOutline16,
 } from '../icons.tsx'
 import type { ComponentType } from 'react'
 import type { FileViewerDescriptor, FileViewerProps } from '../service.ts'
@@ -110,6 +113,18 @@ export function builtinViewers(): readonly FileViewerDescriptor[] {
       exts: ['dsh-workspace'],
       fetchStrategy: 'fsRead',
       component: (props) => <WorkspaceFileView {...props} />,
+    },
+    {
+      // Audio/video: streams through the dedicated /sidebar/video range route
+      // (not the 20MB-capped /sidebar/file route). The component builds its
+      // own URL from `scope`/`path` via videoUrl() — it ignores the mediaUrl
+      // prop, which would point at the buffered file route.
+      id: 'video',
+      title: () => t('viewerVideo'),
+      icon: (size: number) => <IconVideoOutline16 size={size} />,
+      exts: MEDIA_EXTS,
+      fetchStrategy: 'mediaUrl',
+      component: (props) => <VideoView {...props} />,
     },
     {
       id: 'code',

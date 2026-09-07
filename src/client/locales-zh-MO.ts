@@ -300,6 +300,7 @@ export const zhMO: Record<string, string> = {
   viewerCode: '程式碼',
   viewerBinary: '二進位下載',
   viewerHtml: 'HTML',
+  viewerVideo: '視頻',
   browser: '瀏覽器',
   browserPlaceholder: '輸入網址，例如 example.com',
   browserGo: '前往',

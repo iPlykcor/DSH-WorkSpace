@@ -283,6 +283,7 @@ export const nl: Record<string, string> = {
   viewerCode: 'Code',
   viewerBinary: 'Binaire download',
   viewerHtml: 'HTML',
+  viewerVideo: 'Video',
   browser: 'Browser',
   browserPlaceholder: 'Voer een URL in, bijv. example.com',
   browserGo: 'Ga',

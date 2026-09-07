@@ -265,7 +265,19 @@ The GitHub topic [`dsh-better-sidebar`](https://github.com/topics/dsh-better-sid
   <a href="https://github.com/user-attachments/assets/946f7028-4967-461e-a750-d1b5056b62d0"><img width="33%" alt="Service API base screenshot" src="https://github.com/user-attachments/assets/946f7028-4967-461e-a750-d1b5056b62d0" /></a>
 </div>
 
-**Supported DSH versions**: <a href="https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions"><img alt="Supported DSH versions (v0.18.0): 0.1.2-rc.1+" src="https://img.shields.io/badge/DSH-0.1.2--rc.1%2B-4d6bfe" /></a> · full release history on the [Releases](https://github.com/omdsh-dev/DSH-better-sidebar/releases) page
+**Supported DSH versions**: <a href="https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions"><img alt="Supported DSH versions (v0.18.0): 0.1.2-rc.1+" src="https://img.shields.io/badge/DSH-0.1.2--rc.1%2B-4d6bfe" /></a> · full release history on the [Releases](https://github.com/iPlykcor/DSH-WorkSpace/releases) page
+
+### v0.0.2 (this fork, latest)
+
+- 🔗 **Inline audio/video preview**: play `.mp4` and other audio/video directly in the sidebar and the center "Files" view. Adds a streaming `/sidebar/video` host route with HTTP Range (206) support — scrub-friendly and not capped by the 20MB mediaLimit. See [CHANGELOG.md](./CHANGELOG.md).
+
+### v0.0.1 (this fork)
+
+- 📁 **Multi-root workspaces**: a `*.dsh-workspace` (JSONC) manifest lists several root folders at once; opening it applies the multi-root tree, isolated per session and restored on refresh.
+- 🔒 **Per-folder read/write**: each folder `readWrite | readOnly` (default readOnly if unlabeled); sidebar read/write/rename/delete/upload and Git write operations are hard-blocked by policy (read-only root 403 + UI disabled).
+- ⚠️ **Read-only write detection**: catches a model write into a read-only folder via session event-stream detection + sidebar alert + best-effort rollback.
+- 🗂️ **Center-column file view**: registers a "Files" tab to `conversation.view` alongside 对话 / 轨迹; editable text, image/PDF preview.
+- 🔄 **One-click apply / collapse**: edit the manifest and hit ⟳ to re-read; newly applied roots default to collapsed + one-click collapse-all.
 
 ### v0.18.0
 
@@ -478,7 +490,7 @@ All changes since v0.14.0:
 - 🖥️ **Configurable terminal shell**: custom shell setting with Windows pwsh auto-probe ([#95](https://github.com/omdsh-dev/DSH-better-sidebar/pull/95))
 - 📝 **Editor languages**: C# / Kotlin / Swift syntax highlighting ([#120](https://github.com/omdsh-dev/DSH-better-sidebar/pull/120))
 - 🧭 **Settings nav icon**: settings-page navigation icon and layout polish ([#114](https://github.com/omdsh-dev/DSH-better-sidebar/pull/114))
-- ➕ **Recommended-plugin catalog**: added `dsh-git-remotes` — Git Remotes tab (branches/upstream/ahead-behind, fetch with prune, ff-only pull, confirm-before-push; does not replace the built-in stage/commit tab) ([#91](https://github.com/omdsh-dev/DSH-better-sidebar/pull/91)); and `dsh-video-preview` — inline video preview (.mp4/.webm/.mov/.mkv/.avi etc.) backed by a /video host route with HTTP Range (206) scrubbing, not capped by the 20MB mediaLimit ([#126](https://github.com/omdsh-dev/DSH-better-sidebar/pull/126))
+- ➕ **Recommended-plugin catalog**: added `dsh-git-remotes` — Git Remotes tab (branches/upstream/ahead-behind, fetch with prune, ff-only pull, confirm-before-push; does not replace the built-in stage/commit tab) ([#91](https://github.com/omdsh-dev/DSH-better-sidebar/pull/91))
 
 **🐛 Fixes**
 

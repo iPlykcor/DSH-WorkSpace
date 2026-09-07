@@ -271,6 +271,7 @@ export const de: Record<string, string> = {
   viewerCode: 'Code',
   viewerBinary: 'Binär-Download',
   viewerHtml: 'HTML',
+  viewerVideo: 'Video',
   browser: 'Browser',
   browserPlaceholder: 'URL eingeben, z. B. example.com',
   browserGo: 'Los',

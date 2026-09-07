@@ -10,8 +10,9 @@
  * conversation can never break.
  */
 import { useEffect, useState, type ComponentType, type ReactNode } from 'react'
-import { api, mediaUrl } from './api.ts'
+import { api, mediaUrl, videoUrl } from './api.ts'
 import { getCenterFile, subscribeCenterFile } from './center-file.ts'
+import { isAudioExt, isMediaExt } from './media.ts'
 import { lazyChunkComponent } from './lazy-chunk.tsx'
 import type { FileViewerProps } from './service.ts'
 import type { SidebarStore } from './state.ts'
@@ -51,6 +52,7 @@ export function CenterFileView(props: CenterFileViewProps): ReactNode {
     // Media types are previewed through the media route (no fs.read needed).
     if (IMAGE_EXTS.has(ext)) return
     if (ext === 'pdf') return
+    if (isMediaExt(ext)) return
     let cancelled = false
     api.fsRead({ sessionId }, path)
       .then((result) => {
@@ -82,6 +84,16 @@ export function CenterFileView(props: CenterFileViewProps): ReactNode {
     return (
       <div className={css.centerFileMedia}>
         <iframe className={css.centerFilePdf} src={mediaUrl(scope, path)} title={path} />
+      </div>
+    )
+  }
+  if (isMediaExt(ext)) {
+    const url = videoUrl(scope, path)
+    return (
+      <div className={css.centerFileMedia}>
+        {isAudioExt(ext)
+          ? <audio controls className={css.centerFilePdf} src={url} aria-label={path} />
+          : <video controls className={css.centerFilePdf} src={url} aria-label={path} />}
       </div>
     )
   }

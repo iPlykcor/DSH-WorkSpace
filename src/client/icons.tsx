@@ -120,6 +120,16 @@ export const IconHtmlOutline16 = ({ size = 16, className }: IconProps) => (
   </svg>
 )
 
+/** Video viewer glyph: a document frame with a play triangle, in the app's
+ *  outline style — the streaming media viewer's settings-inventory icon. */
+export const IconVideoOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M3.5 1.5h6.5L13.5 5v9.5h-10z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    <path d="M9.5 1.5V5h4" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    <path d="M6.4 8.1v3.4l3.1-1.7z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" />
+  </svg>
+)
+
 /** Browser tab glyph: a globe with meridians. */
 export const IconGlobeOutline16 = ({ size = 16, className }: IconProps) => (
   <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">

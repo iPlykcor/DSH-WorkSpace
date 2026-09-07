@@ -35,11 +35,4 @@ export const builtinViewerPlugins: readonly PluginEntry[] = [
     description: () => t('pluginCodeNavDesc'),
     install: 'cd ~/.dsh && dsh plugin --profile web add https://github.com/AnakinCao/dsh-code-nav.git',
   },
-  {
-    id: 'dsh-video-preview',
-    name: () => t('pluginVideoPreviewName'),
-    url: 'https://github.com/zemul/dsh-video-preview',
-    description: () => t('pluginVideoPreviewDesc'),
-    install: 'cd ~/.dsh && dsh plugin --profile web add dsh-video-preview',
-  },
 ]

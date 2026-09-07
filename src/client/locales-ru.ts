@@ -282,6 +282,7 @@ export const ru: Record<string, string> = {
   viewerCode: 'Код',
   viewerBinary: 'Бинарная загрузка',
   viewerHtml: 'HTML',
+  viewerVideo: 'Видео',
   browser: 'Браузер',
   browserPlaceholder: 'Введите URL, например example.com',
   browserGo: 'Перейти',

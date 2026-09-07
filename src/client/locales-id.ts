@@ -283,6 +283,7 @@ export const id: Record<string, string> = {
   viewerCode: 'Kode',
   viewerBinary: 'Unduhan biner',
   viewerHtml: 'HTML',
+  viewerVideo: 'Video',
   browser: 'Browser',
   browserPlaceholder: 'Masukkan URL, mis. example.com',
   browserGo: 'Buka',

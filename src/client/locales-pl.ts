@@ -287,6 +287,7 @@ export const pl: Record<string, string> = {
   viewerCode: 'Kod',
   viewerBinary: 'Pobieranie binarne',
   viewerHtml: 'HTML',
+  viewerVideo: 'Wideo',
   browser: 'Przeglądarka',
   browserPlaceholder: 'Wpisz adres URL, np. example.com',
   browserGo: 'Przejdź',

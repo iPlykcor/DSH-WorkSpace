@@ -14,8 +14,9 @@
  * processes are keyed by session.
  */
 import { mkdir, open, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
 import { basename, dirname, extname, isAbsolute, join } from 'node:path'
-import type { IncomingMessage } from 'node:http'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { WebSocket, WebSocketServer } from 'ws'
 import type { Context, SidebarHttpRequest, SidebarSessionEvent } from './context-types.ts'
@@ -104,11 +105,72 @@ const MEDIA_TYPES: Record<string, string> = {
   '.pdf': 'application/pdf',
   '.html': 'text/html',
   '.htm': 'text/html',
+  // Video containers (inner codec support is the browser's domain).
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
+  '.m4v': 'video/x-m4v',
+  '.ogv': 'video/ogg',
+  '.mkv': 'video/x-matroska',
+  '.avi': 'video/x-msvideo',
+  '.mpg': 'video/mpeg',
+  '.mpeg': 'video/mpeg',
+  '.wmv': 'video/x-ms-wmv',
+  '.flv': 'video/x-flv',
+  '.3gp': 'video/3gpp',
+  // Audio containers.
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.flac': 'audio/flac',
+  '.aac': 'audio/aac',
+  '.opus': 'audio/opus',
 }
 
 /** Content type served by /sidebar/file (binary-safe fallback for unknowns). */
 export function mediaTypeForPath(path: string): string {
   return MEDIA_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream'
+}
+
+/** A parsed HTTP Range request for one byte range of a known-size resource. */
+export type ByteRange =
+  | { kind: 'full'; start: number; end: number }
+  | { kind: 'partial'; start: number; end: number }
+  | { kind: 'unsatisfiable' }
+
+/**
+ * Parse a `Range: bytes=…` request header for a resource of `size` bytes.
+ * Returns a single satisfiable range (`full` when no header is present or
+ * the header is malformed — serve the whole resource as 200), a `partial`
+ * range (serve as 206), or `unsatisfiable` (serve as 416 with a
+ * `Content-Range: bytes N-M/size` header). Suffix ranges (`bytes=-500`) are the
+ * last N bytes. Only a single range is supported (the streaming viewers
+ * never need multipart ranges).
+ */
+export function parseByteRange(header: string | undefined, size: number): ByteRange {
+  const full: ByteRange = { kind: 'full', start: 0, end: Math.max(0, size - 1) }
+  if (header === undefined || header.trim() === '') return full
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim())
+  if (match === null) return full
+  const [, rawStart, rawEnd] = match
+  let start: number
+  let end: number
+  if (rawStart === '' && rawEnd !== '') {
+    // Suffix range (`bytes=-N`): the last N bytes. `rawEnd` is the LENGTH,
+    // not an absolute end offset — set the end to the last byte explicitly.
+    start = Math.max(0, size - Number(rawEnd))
+    end = size - 1
+  } else {
+    start = rawStart === '' ? 0 : Number(rawStart)
+    end = rawEnd === '' ? size - 1 : Number(rawEnd)
+  }
+  if (size === 0 || Number.isNaN(start) || Number.isNaN(end) || start < 0 || start > end || start >= size) {
+    return { kind: 'unsatisfiable' }
+  }
+  end = Math.min(end, size - 1)
+  return { kind: 'partial', start, end }
 }
 
 /**
@@ -1113,6 +1175,76 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
       }
     },
   }), 'dsh-workspace: /sidebar/file media route')
+
+  // ── Streaming media route (audio/video with HTTP Range) ──────────────────
+  // Serves audio/video bytes through a dedicated /sidebar/video route that
+  // supports HTTP Range (206) and streams from disk, so large files play
+  // inline and the browser progress bar can be scrubbed. Unlike the buffered
+  // /sidebar/file route it is NOT capped by mediaLimit (streaming bounds
+  // memory to the read high-water mark). The client builds the URL with
+  // videoUrl() (see client/api.ts); the VideoView component consumes it.
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'prefix',
+    path: '/sidebar/video',
+    handler: async (req, res) => {
+      if (!fence(req)) {
+        res.writeHead(403)
+        res.end('forbidden')
+        return
+      }
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405)
+        res.end()
+        return
+      }
+      try {
+        const url = new URL(req.url ?? '/', 'http://dsh.internal')
+        const sessionId = url.searchParams.get('sessionId')
+        const raw = url.searchParams.get('path')
+        if (sessionId === null || raw === null) throw new SidebarError('bad-request', 'sessionId and path are required')
+        const cwd = await sessionCwdOf(ctx, sessionId, url.searchParams.get('cwd') ?? undefined)
+        const path = await wsReadTarget(sessionId, cwd, raw)
+        const info = await stat(path)
+        if (!info.isFile()) throw new SidebarError('fs-error', 'not a file', 400)
+        const type = mediaTypeForPath(path)
+        // The registered handler gets the structural response face; the host
+        // really hands it a Node ServerResponse, which is what the streaming
+        // write/close handlers here need (see context-types.ts header).
+        const serverRes = res as unknown as ServerResponse
+        const rangeHeader = Array.isArray(req.headers.range) ? req.headers.range[0] : req.headers.range
+        const range = parseByteRange(rangeHeader, info.size)
+        const common: Record<string, string> = {
+          'content-type': type,
+          'accept-ranges': 'bytes',
+          'cache-control': 'no-cache',
+        }
+        if (range.kind === 'unsatisfiable') {
+          serverRes.writeHead(416, { ...common, 'content-range': `bytes */${info.size}` })
+          serverRes.end()
+          return
+        }
+        const { start, end, kind } = range
+        serverRes.writeHead(kind === 'partial' ? 206 : 200, {
+          ...common,
+          'content-length': String(end - start + 1),
+          ...(kind === 'partial' ? { 'content-range': `bytes ${start}-${end}/${info.size}` } : {}),
+        })
+        if (req.method === 'HEAD') {
+          serverRes.end()
+          return
+        }
+        const stream = createReadStream(path, { start, end })
+        stream.on('error', () => {
+          if (!serverRes.headersSent) serverRes.writeHead(500)
+          serverRes.end()
+        })
+        serverRes.on('close', () => stream.destroy())
+        stream.pipe(serverRes)
+      } catch (error) {
+        writeError(res, error)
+      }
+    },
+  }), 'dsh-workspace: /sidebar/video streaming route')
 
   // ── HTML preview route (sandboxed HTML + its relative assets) ───────────
   // Serves files under the session cwd for the built-in HTML previewer. The

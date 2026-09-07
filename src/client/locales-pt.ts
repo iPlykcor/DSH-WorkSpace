@@ -268,6 +268,7 @@ export const pt: Record<string, string> = {
   viewerCode: 'Código',
   viewerBinary: 'Download binário',
   viewerHtml: 'HTML',
+  viewerVideo: 'Vídeo',
   browser: 'Navegador',
   browserPlaceholder: 'Digite uma URL, ex.: example.com',
   browserGo: 'Ir',

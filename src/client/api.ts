@@ -489,6 +489,17 @@ function fileUrl(scope: SessionScope, path: string, download: boolean): string {
 }
 
 /**
+ * Absolute URL of the streaming `/sidebar/video` route (HTTP Range 206;
+ * NOT capped by the 20MB mediaLimit). Video/audio viewers build this instead
+ * of {@link mediaUrl}, which buffers the whole file through `/sidebar/file`.
+ */
+export function videoUrl(scope: SessionScope, path: string): string {
+  const params = new URLSearchParams({ sessionId: scope.sessionId, path })
+  if (scope.cwd !== undefined && scope.cwd !== '') params.set('cwd', scope.cwd)
+  return `/sidebar/video?${params.toString()}`
+}
+
+/**
  * Absolute URL of the HTML preview route (see html-route.ts): the path is
  * fully encoded so the previewed page's relative assets resolve back into
  * the same route with the session scope intact. The UNC marker is

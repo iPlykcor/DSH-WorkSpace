@@ -1,11 +1,12 @@
 /**
- * Built-in registration tests: the plugin registers 7 tabs and 6 file
+ * Built-in registration tests: the plugin registers 7 tabs and 8 file
  * viewers through the same service external plugins use (dogfooding);
  * the catch-all `code` viewer, the NUL-sniffing `binary-download` viewer,
  * and the html sandbox settings pin the registry's behavior. (Office
  * previews are NOT built in — they moved to the recommended office plugin,
- * see src/client/plugins-viewers.ts.) The git tab is the unified changes
- * tab (git lens + session lens, PR #471's file-trace merged in).
+ * see src/client/plugins-viewers.ts. Video/audio preview IS built in via
+ * the streaming /sidebar/video range route.) The git tab is the unified
+ * changes tab (git lens + session lens, PR #471's file-trace merged in).
  */
 import { describe, expect, it } from 'vitest'
 // First import: browser globals before the xterm-carrying builtin graph loads.
@@ -212,10 +213,10 @@ describe('built-in tab registrations', () => {
 })
 
 describe('built-in file viewer registrations', () => {
-  it('registers the 7 built-in file viewers (office previews live in the recommended office plugin)', () => {
+  it('registers the 8 built-in file viewers (office previews live in the recommended office plugin)', () => {
     const { service } = setup()
     expect(service.getFileViewers().map(v => v.id).sort()).toEqual(
-      ['binary-download', 'code', 'dsh-workspace', 'html', 'image', 'markdown', 'pdf'],
+      ['binary-download', 'code', 'dsh-workspace', 'html', 'image', 'markdown', 'pdf', 'video'],
     )
     // Office previews are not built in: docx/xlsx/pptx files fall through to
     // the download-only binary viewer (or a registered office plugin).
