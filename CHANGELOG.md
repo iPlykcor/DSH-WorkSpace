@@ -6,15 +6,10 @@
 > 本 fork 基于 [@omdsh-dev/DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar)（MIT）改进，
 > 保留上游架构与许可，仅做增益。上游 v0.12.0 ~ v0.18.x 的历史记录见上游 README / Releases，此处不重复。
 
-## [v0.0.7] - 2026-09-07
-
-### 修复
-- **中间“文件”视图工具栏固定的容器问题**：改用 `centerFileEditor`（确定高度 + flex column + overflow hidden）作为外层，头部固定、内容在 `editorBody/editorMain` 内滚动——避免依赖中心插槽不稳定的 `flex:1` 父级。
-
 ## [v0.0.6] - 2026-09-07
 
 ### 修复
-- **中间“文件”视图工具栏固定**：`预览 / 编辑 / 保存` 图标不再随内容滚动，改为与侧边栏一致的 fixed 头部（host 模式）——中间列滚动时工具栏始终停留在顶栏。
+- **中间“文件”视图工具栏固定**：`预览 / 编辑 / 保存` 图标不再随内容滚动。根因是标题栏的直接父容器 `centerFileEditor` 为 `overflow:hidden`，导致 `position:sticky` 被近邻的“非滚动”容器困住、无法向真正滚动的 `scrollBody` 钉住；改为外层 `overflow:visible`、标题栏 `position:sticky; top:0`，并对滚动容器生效，工具栏始终留在顶栏；同时给标题栏加 `--dsw-alias-bg-layer-1` 不透明背景，与侧边栏一致。
 
 ## [v0.0.5] - 2026-09-07
 

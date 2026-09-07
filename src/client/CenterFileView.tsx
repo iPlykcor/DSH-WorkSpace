@@ -141,8 +141,8 @@ export function CenterFileView(props: CenterFileViewProps): ReactNode {
       ? t('saved')
       : toolbar?.saveState === 'failed' ? t('saveFailed') : ''
   return (
-    <div className={css.centerFileEditor}>
-      <div className={css.editorHeader}>
+    <div className={css.centerFileEditor} style={{ overflow: 'visible' }}>
+      <div className={css.editorHeader} style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--dsw-alias-bg-layer-1)' }}>
         {toolbar?.modes === true && (
           <div className={css.editorModeToggle}>
             <button
