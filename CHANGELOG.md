@@ -6,6 +6,20 @@
 > 本 fork 基于 [@omdsh-dev/DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar)（MIT）改进，
 > 保留上游架构与许可，仅做增益。上游 v0.12.0 ~ v0.18.x 的历史记录见上游 README / Releases，此处不重复。
 
+## [v0.0.3] - 2026-09-07
+
+### 新增
+- **Office 三件套内联预览**（新格式 `docx / xlsx / pptx`）：侧边栏与中间“文件”视图直接预览。
+  - **docx**：`docx-preview`（MIT）——接近 Word 版式的 DOM 渲染。
+  - **xlsx**：SheetJS（Apache-2.0）解析 + `@fortune-sheet/react`（MIT，x-spreadsheet 的现代 React 继任）样式化表格网格（含合并单元格）。
+  - **pptx**：`@aiden0z/pptx-renderer`（Apache-2.0）——DOM/SVG 幻灯片渲染（可读版式，非像素级完美）。
+- 以上库打包进**懒加载 `office` chunk**（首开 Office 约 8MB，按需加载，不拖累首屏）。
+- 新增 `/sidebar` 办公室查看器：`docx` / `spreadsheet` / `presentation`。
+- 移除“推荐插件目录”里的外部 office 插件（AGPL 风险，现已内置）；老版 `.doc / .ppt / .xls` 维持“下载查看”。
+
+### 说明
+- 版本号重编为 `0.0.3`（侧边卡片显示 `DSH-WorkSpace v0.0.3`）。
+
 ## [v0.0.2] - 2026-09-07
 
 ### 新增

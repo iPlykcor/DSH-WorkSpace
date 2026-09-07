@@ -5,6 +5,7 @@ packages:
 # (no source compilation on supported platforms); pnpm 10+ blocks dependency
 # build scripts unless approved.
 allowBuilds:
+  core-js: false
   node-pty: true
   protobufjs: true
 

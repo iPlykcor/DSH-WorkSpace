@@ -28,13 +28,16 @@ import { PdfView } from '../PdfView.tsx'
 import { BinaryDownload } from '../binary-download.tsx'
 import { WorkspaceFileView } from '../WorkspaceFileView.tsx'
 import { VideoView } from '../VideoView.tsx'
+import { OfficeView } from '../OfficeView.tsx'
 import { MEDIA_EXTS } from '../media.ts'
+import { mediaUrl } from '../api.ts'
 import {
   IconImageOutline16,
   IconMarkdownOutline16,
   IconPdfOutline16,
   IconHtmlOutline16,
   IconVideoOutline16,
+  IconOfficeOutline16,
 } from '../icons.tsx'
 import type { ComponentType } from 'react'
 import type { FileViewerDescriptor, FileViewerProps } from '../service.ts'
@@ -125,6 +128,50 @@ export function builtinViewers(): readonly FileViewerDescriptor[] {
       exts: MEDIA_EXTS,
       fetchStrategy: 'mediaUrl',
       component: (props) => <VideoView {...props} />,
+    },
+    // Office previews (new-format only: docx / xlsx / pptx). Each viewer
+    // fetches the raw bytes through the buffered /sidebar/file route and the
+    // OfficeView component lazily loads the `office` chunk to render. The
+    // `spreadsheet` viewer renders the xlsx grid via x-data-spreadsheet; the
+    // pptx one via @aiden0z/pptx-renderer. (Legacy .doc/.ppt stay download-only.)
+    {
+      id: 'docx',
+      title: () => t('viewerDocx'),
+      icon: (size: number) => <IconOfficeOutline16 size={size} />,
+      exts: ['docx'],
+      fetchStrategy: 'custom',
+      load: async (path, scope, signal) => {
+        const res = await fetch(mediaUrl(scope, path), { signal })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.arrayBuffer()
+      },
+      component: (props) => <OfficeView {...props} />,
+    },
+    {
+      id: 'spreadsheet',
+      title: () => t('viewerSpreadsheet'),
+      icon: (size: number) => <IconOfficeOutline16 size={size} />,
+      exts: ['xlsx'],
+      fetchStrategy: 'custom',
+      load: async (path, scope, signal) => {
+        const res = await fetch(mediaUrl(scope, path), { signal })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.arrayBuffer()
+      },
+      component: (props) => <OfficeView {...props} />,
+    },
+    {
+      id: 'presentation',
+      title: () => t('viewerPresentation'),
+      icon: (size: number) => <IconOfficeOutline16 size={size} />,
+      exts: ['pptx'],
+      fetchStrategy: 'custom',
+      load: async (path, scope, signal) => {
+        const res = await fetch(mediaUrl(scope, path), { signal })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.arrayBuffer()
+      },
+      component: (props) => <OfficeView {...props} />,
     },
     {
       id: 'code',

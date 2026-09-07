@@ -130,6 +130,17 @@ export const IconVideoOutline16 = ({ size = 16, className }: IconProps) => (
   </svg>
 )
 
+/** Office viewer glyph: a document frame with a small table grid, in the
+ *  app's outline style — shared by the docx / spreadsheet / presentation
+ *  viewers in the settings inventory. */
+export const IconOfficeOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M3.5 1.5h6.5L13.5 5v9.5h-10z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    <path d="M9.5 1.5V5h4" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    <path d="M5 8h5M5 10.5h5M7.5 6.5v6" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+  </svg>
+)
+
 /** Browser tab glyph: a globe with meridians. */
 export const IconGlobeOutline16 = ({ size = 16, className }: IconProps) => (
   <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">

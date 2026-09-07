@@ -1,6 +1,6 @@
 {
   "name": "dsh-workspace",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "DSH web plugin: a VSCode-like right sidebar (explorer / editor / terminal / git / browser) extended with multi-root workspaces (.dsh-workspace), per-folder read/write, read-only write detection, and a center-column file view. Derived from dsh-better-sidebar (see README for attribution). Isolated per conversation session; exposes a service for other plugins to register sidebar tabs and file viewers.",
   "type": "module",
   "repository": {
@@ -62,6 +62,7 @@
     "lib/client-terminal.js",
     "lib/client-editor.js",
     "lib/client-mermaid.js",
+    "lib/client-office.js",
     "lib/types/**/*.d.ts",
     "src",
     "scripts/install.sh",
@@ -111,6 +112,7 @@
     }
   },
   "dependencies": {
+    "@aiden0z/pptx-renderer": "^1.2.4",
     "@codemirror/commands": "^6.10.4",
     "@codemirror/lang-cpp": "^6.0.3",
     "@codemirror/lang-css": "^6.3.1",
@@ -132,15 +134,18 @@
     "@codemirror/search": "^6.7.1",
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.8",
+    "@fortune-sheet/react": "^1.0.4",
     "@lezer/highlight": "^1.2.3",
     "clsx": "^2.1.1",
+    "docx-preview": "^0.4.0",
     "dompurify": "^3.4.14",
     "mermaid": "^11.16.1",
     "node-pty": "^1.1.0",
     "react-icons": "5.7.0",
     "rxjs": "^7.8.2",
     "schemastery": "^3.18.0",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@cordisjs/plugin-loader": "^1.0.0-rc.5",
@@ -164,6 +169,7 @@
     "@deepseek-ai/dsh-tools": "0.1.2-rc.1",
     "@deepseek-ai/dsh-user-approval": "0.1.2-rc.1",
     "@deepseek-ai/dsh-util-time": "0.1.2-rc.1",
+    "@eslint/js": "^10.0.1",
     "@huanlin/dsh-plugin-better-locale": "^0.1.0",
     "@playwright/test": "^1.62.1",
     "@types/node": "^24.0.0",
@@ -173,18 +179,17 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^5.5.0",
     "cordis": "^4.0.0-rc.8",
+    "eslint": "^10.9.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
     "jsdom": "^29.1.1",
     "lightningcss": "^1.32.0",
     "react": "^18.2.0",
     "react-dom": "18.2.0",
     "tsdown": "^0.22.2",
     "typescript": "^5.6.0",
+    "typescript-eslint": "^8.69.0",
     "unrun": "^0.2.39",
-    "vitest": "^4.1.8",
-    "@eslint/js": "^10.0.1",
-    "eslint": "^10.9.1",
-    "eslint-plugin-react-hooks": "^7.1.1",
-    "globals": "^17.12.0",
-    "typescript-eslint": "^8.69.0"
+    "vitest": "^4.1.8"
   }
 }

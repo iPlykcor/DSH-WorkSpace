@@ -24,9 +24,12 @@ const catalogs: Array<[string, readonly PluginEntry[]]> = [
 ]
 
 describe('builtin plugin catalogs', () => {
-  it('the viewer catalog has the office plugin, the tab catalog has the sentinel plugin', () => {
+  it('the viewer catalog has a md-export plugin, the tab catalog has the sentinel plugin', () => {
     const ids = (list: readonly PluginEntry[]): string[] => list.map(p => p.id)
-    expect(ids(builtinViewerPlugins)).toContain('@huanlin/dsh-plugin-better-sidebar-plugin-office')
+    // Office previews are built in (docx/xlsx/pptx), so the AGPL-tainted office
+    // plugin is no longer recommended.
+    expect(ids(builtinViewerPlugins)).not.toContain('@huanlin/dsh-plugin-better-sidebar-plugin-office')
+    expect(ids(builtinViewerPlugins)).toContain('dsh-md-export')
     expect(ids(builtinTabPlugins)).toContain('@dsh-external/dsh-sentinel')
     expect(ids(builtinTabPlugins)).not.toContain('@huanlin/dsh-plugin-better-sidebar-plugin-office')
   })

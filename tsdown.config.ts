@@ -215,6 +215,7 @@ function chunkBundle(name: string): UserConfig {
     },
     noExternal: (id: string) => (CLIENT_EXTERNALS.includes(id) ? undefined : true),
     plugins: [
+      ...(name === 'office' ? [officeNodeShims()] : []),
       purityGatePlugin(),
       makeCssPlugin('dsh-workspace'),
       ...(name === 'mermaid' ? [mermaidChunkAliases()] : []),
@@ -242,6 +243,29 @@ type BuildPlugin = NonNullable<UserConfig['plugins']>
  * the specifier there instead of special-casing the gate. Resolved relative
  * to mermaid's own dependency tree (pnpm/npm layout agnostic).
  */
+/** Node-only builtins the office libs import (SheetJS stubs these via its own
+ *  `browser` field: `{ fs:false, stream:false, buffer:false, crypto:false,
+ *  process:false }`). The office chunk replaces them with an empty module
+ *  before the purity gate so a browser bundle can build — those code paths are
+ *  Node-only and never run in the browser. */
+const OFFICE_NODE_STUBS = new Set([
+  'fs', 'stream', 'buffer', 'crypto', 'path', 'os', 'util', 'events', 'zlib',
+  'url', 'querystring', 'readable-stream', 'child_process',
+])
+function officeNodeShims(): BuildPlugin {
+  return {
+    name: 'dsh-office-node-shims',
+    resolveId(source: string) {
+      if (OFFICE_NODE_STUBS.has(source)) return `\0dsh-office-stub:${source}`
+      return null
+    },
+    load(id: string) {
+      if (id.startsWith('\0dsh-office-stub:')) return 'export default {};'
+      return null
+    },
+  }
+}
+
 function mermaidChunkAliases(): BuildPlugin {
   const uuidBrowserEntry = resolvePath(
     dirname(require.resolve('uuid/package.json', { paths: [dirname(require.resolve('mermaid/package.json'))] })),
@@ -324,7 +348,7 @@ function makeCssPlugin(pluginId: string): BuildPlugin {
 }
 
 /** The lazy chunk names (keep in sync with src/bundle-route.ts CHUNK_NAMES). */
-const CHUNKS = ['terminal', 'editor', 'mermaid', 'locale']
+const CHUNKS = ['terminal', 'editor', 'mermaid', 'locale', 'office']
 
 export default [
   {
