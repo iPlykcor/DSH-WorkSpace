@@ -271,9 +271,13 @@ GitHub topic [`dsh-better-sidebar`](https://github.com/topics/dsh-better-sidebar
 
 **支持的 DSH 版本**：<a href="https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions"><img alt="支持的 DSH 版本（v0.18.0 正式版）：0.1.2-rc.1+" src="https://img.shields.io/badge/DSH-0.1.2--rc.1%2B-4d6bfe" /></a> · 完整发布历史见 [Releases](https://github.com/iPlykcor/DSH-WorkSpace/releases)
 
-### v0.0.3（本 fork，最新）
+### v0.0.4（本 fork，最新）
 
-- 📄 **Office 三件套内联预览**（新格式）：`.docx`（docx-preview 版式渲染）、`.xlsx`（SheetJS 解析 + x-spreadsheet 继任渲染样式的表格网格，含合并单元格）、`.pptx`（pptx 渲染器出幻灯片）。全部打进懒加载 `office` chunk（首开按需加载），离线、零系统依赖。详见 [CHANGELOG.md](./CHANGELOG.md)。
+- 🔧 **XLSX / 中间列 Office 预览修复**：`.xlsx` 改用 SheetJS 带边框表格（合并单元格经 colspan/rowspan，读取稳定），侧边栏与中间“文件”视图均可预览；`docx / xlsx / pptx` 现在在**中间列“文件”视图**也能预览（此前仅侧边栏可用、中间列报“暂不支持”）；office 懒加载 chunk 体积降到 ~3MB。详见 [CHANGELOG.md](./CHANGELOG.md)。
+
+### v0.0.3（本 fork）
+
+- 📄 **Office 三件套内联预览**（新格式）：`.docx`（docx-preview 版式渲染）、`.xlsx`（SheetJS 解析 + 样式表格网格，含合并单元格）、`.pptx`（pptx 渲染器出幻灯片）。全部打进懒加载 `office` chunk（首开按需加载），离线、零系统依赖。详见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ### v0.0.2（本 fork）
 

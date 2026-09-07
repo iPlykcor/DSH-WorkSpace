@@ -6,6 +6,13 @@
 > 本 fork 基于 [@omdsh-dev/DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar)（MIT）改进，
 > 保留上游架构与许可，仅做增益。上游 v0.12.0 ~ v0.18.x 的历史记录见上游 README / Releases，此处不重复。
 
+## [v0.0.4] - 2026-09-07
+
+### 修复
+- **xlsx 预览修复**：改用 **SheetJS → 带边框表格**（合并单元格经 colspan/rowspan），替换此前不稳定的 FortuneSheet 网格——侧边栏与中间“文件”视图现在都能正确预览 `.xlsx`（只读）；office chunk 体积由 ~8MB 降到 ~3MB。
+- **中间“文件”视图支持 Office**：`docx / xlsx / pptx` 现在在中间列也能预览（此前侧边栏 OK、中间列报“暂不支持”）。
+- OfficeView 可从 `scope+path` 自行取字节，兼容侧边栏（customData）与中间列（自取）两种入口。
+
 ## [v0.0.3] - 2026-09-07
 
 ### 新增

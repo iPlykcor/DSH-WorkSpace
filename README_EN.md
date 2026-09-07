@@ -265,9 +265,13 @@ The GitHub topic [`dsh-better-sidebar`](https://github.com/topics/dsh-better-sid
 
 **Supported DSH versions**: <a href="https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions"><img alt="Supported DSH versions (v0.18.0): 0.1.2-rc.1+" src="https://img.shields.io/badge/DSH-0.1.2--rc.1%2B-4d6bfe" /></a> · full release history on the [Releases](https://github.com/iPlykcor/DSH-WorkSpace/releases) page
 
-### v0.0.3 (this fork, latest)
+### v0.0.4 (this fork, latest)
 
-- 📄 **Inline Office previews** (new formats): `.docx` (docx-preview layout render), `.xlsx` (SheetJS parse + x-spreadsheet-style grid with merges), `.pptx` (pptx renderer slides). Bundled into a lazy `office` chunk (fetched on first open), offline and dependency-free. See [CHANGELOG.md](./CHANGELOG.md).
+- 🔧 **XLSX / center-view Office preview fix**: `.xlsx` now uses a SheetJS bordered table (merges via colspan/rowspan, reliable), previewable in both the sidebar and the center "Files" view; `docx / xlsx / pptx` now preview in the **center "Files" view** too (previously sidebar-only, center said "not supported"); the lazy office chunk dropped to ~3MB. See [CHANGELOG.md](./CHANGELOG.md).
+
+### v0.0.3 (this fork)
+
+- 📄 **Inline Office previews** (new formats): `.docx` (docx-preview layout render), `.xlsx` (SheetJS parse + styled table with merges), `.pptx` (pptx renderer slides). Bundled into a lazy `office` chunk (fetched on first open), offline and dependency-free. See [CHANGELOG.md](./CHANGELOG.md).
 
 ### v0.0.2 (this fork)
 

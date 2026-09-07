@@ -13,7 +13,9 @@ import { useEffect, useState, type ComponentType, type ReactNode } from 'react'
 import { api, mediaUrl, videoUrl } from './api.ts'
 import { getCenterFile, subscribeCenterFile } from './center-file.ts'
 import { isAudioExt, isMediaExt } from './media.ts'
+import { isOfficeExt, officeViewerIdForExt } from './office-detect.ts'
 import { lazyChunkComponent } from './lazy-chunk.tsx'
+import { OfficeView } from './OfficeView.tsx'
 import type { FileViewerProps } from './service.ts'
 import type { SidebarStore } from './state.ts'
 import { t } from './locales.ts'
@@ -53,6 +55,7 @@ export function CenterFileView(props: CenterFileViewProps): ReactNode {
     if (IMAGE_EXTS.has(ext)) return
     if (ext === 'pdf') return
     if (isMediaExt(ext)) return
+    if (isOfficeExt(ext)) return
     let cancelled = false
     api.fsRead({ sessionId }, path)
       .then((result) => {
@@ -94,6 +97,14 @@ export function CenterFileView(props: CenterFileViewProps): ReactNode {
         {isAudioExt(ext)
           ? <audio controls className={css.centerFilePdf} src={url} aria-label={path} />
           : <video controls className={css.centerFilePdf} src={url} aria-label={path} />}
+      </div>
+    )
+  }
+  const officeViewerId = officeViewerIdForExt(ext)
+  if (officeViewerId !== undefined) {
+    return (
+      <div className={css.centerFileMedia}>
+        <OfficeView scope={scope} path={path} viewerId={officeViewerId} title={path} />
       </div>
     )
   }
