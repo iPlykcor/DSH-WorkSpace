@@ -271,7 +271,11 @@ GitHub topic [`dsh-better-sidebar`](https://github.com/topics/dsh-better-sidebar
 
 **支持的 DSH 版本**：<a href="https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions"><img alt="支持的 DSH 版本（v0.18.0 正式版）：0.1.2-rc.1+" src="https://img.shields.io/badge/DSH-0.1.2--rc.1%2B-4d6bfe" /></a> · 完整发布历史见 [Releases](https://github.com/iPlykcor/DSH-WorkSpace/releases)
 
-### v0.0.6（本 fork，最新）
+### v0.0.7（本 fork，最新）
+
+- 🧷 **中间“文件”视图工具栏固定的容器修复**：改用确定高度的 `centerFileEditor` 外层，头部固定、内容内部滚动（修复 v0.0.6 在部分布局下仍随内容滚动的问题）。详见 [CHANGELOG.md](./CHANGELOG.md)。
+
+### v0.0.6（本 fork）
 
 - 🧷 **中间“文件”视图工具栏固定**：`预览 / 编辑 / 保存` 图标不再随内容滚动，改为与侧边栏一致的固定头部。详见 [CHANGELOG.md](./CHANGELOG.md)。
 

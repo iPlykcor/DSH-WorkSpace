@@ -6,6 +6,11 @@
 > 本 fork 基于 [@omdsh-dev/DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar)（MIT）改进，
 > 保留上游架构与许可，仅做增益。上游 v0.12.0 ~ v0.18.x 的历史记录见上游 README / Releases，此处不重复。
 
+## [v0.0.7] - 2026-09-07
+
+### 修复
+- **中间“文件”视图工具栏固定的容器问题**：改用 `centerFileEditor`（确定高度 + flex column + overflow hidden）作为外层，头部固定、内容在 `editorBody/editorMain` 内滚动——避免依赖中心插槽不稳定的 `flex:1` 父级。
+
 ## [v0.0.6] - 2026-09-07
 
 ### 修复
