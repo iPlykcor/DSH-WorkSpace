@@ -271,7 +271,11 @@ GitHub topic [`dsh-better-sidebar`](https://github.com/topics/dsh-better-sidebar
 
 **支持的 DSH 版本**：<a href="https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions"><img alt="支持的 DSH 版本（v0.18.0 正式版）：0.1.2-rc.1+" src="https://img.shields.io/badge/DSH-0.1.2--rc.1%2B-4d6bfe" /></a> · 完整发布历史见 [Releases](https://github.com/iPlykcor/DSH-WorkSpace/releases)
 
-### v0.0.5（本 fork，最新）
+### v0.0.6（本 fork，最新）
+
+- 🧷 **中间“文件”视图工具栏固定**：`预览 / 编辑 / 保存` 图标不再随内容滚动，改为与侧边栏一致的固定头部。详见 [CHANGELOG.md](./CHANGELOG.md)。
+
+### v0.0.5（本 fork）
 
 - 🖼️ **中间列 pptx 显示比例修复**：Office 视图改为撑满容器宽高，中间列“文件”视图的 `.pptx` 按容器宽度正常缩放，不再显示成小缩略图。详见 [CHANGELOG.md](./CHANGELOG.md)。
 

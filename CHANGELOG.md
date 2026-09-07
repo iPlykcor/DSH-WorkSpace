@@ -6,6 +6,11 @@
 > 本 fork 基于 [@omdsh-dev/DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar)（MIT）改进，
 > 保留上游架构与许可，仅做增益。上游 v0.12.0 ~ v0.18.x 的历史记录见上游 README / Releases，此处不重复。
 
+## [v0.0.6] - 2026-09-07
+
+### 修复
+- **中间“文件”视图工具栏固定**：`预览 / 编辑 / 保存` 图标不再随内容滚动，改为与侧边栏一致的 fixed 头部（host 模式）——中间列滚动时工具栏始终停留在顶栏。
+
 ## [v0.0.5] - 2026-09-07
 
 ### 修复

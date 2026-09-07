@@ -9,14 +9,16 @@
  * Any editor failure degrades to a plain read-only <pre> so the center
  * conversation can never break.
  */
-import { useEffect, useState, type ComponentType, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
+import clsx from 'clsx'
+import { IconCheckOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { api, mediaUrl, videoUrl } from './api.ts'
 import { getCenterFile, subscribeCenterFile } from './center-file.ts'
 import { isAudioExt, isMediaExt } from './media.ts'
 import { isOfficeExt, officeViewerIdForExt } from './office-detect.ts'
 import { lazyChunkComponent } from './lazy-chunk.tsx'
 import { OfficeView } from './OfficeView.tsx'
-import type { FileViewerProps } from './service.ts'
+import type { EditorToolbarControls, EditorToolbarState, FileViewerProps } from './service.ts'
 import type { SidebarStore } from './state.ts'
 import { t } from './locales.ts'
 import css from './sidebar.module.css'
@@ -43,8 +45,23 @@ export function CenterFileView(props: CenterFileViewProps): ReactNode {
   const [path, setPath] = useState<string>(() => getCenterFile(sessionId))
   const [content, setContent] = useState<{ text: string; truncated: boolean } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Fixed editor toolbar (mode toggle / dirty / save / status), fed by the
+  // hosted TextEditor via toolbar:'host' — so the toolbar row never scrolls
+  // with the content (center-file view scrolls only the editor body).
+  const [toolbar, setToolbar] = useState<EditorToolbarState | null>(null)
+  const controlsRef = useRef<EditorToolbarControls | null>(null)
+  const onToolbarState = useCallback((next: EditorToolbarState) => {
+    setToolbar(prev => prev !== null && JSON.stringify(prev) === JSON.stringify(next) ? prev : next)
+  }, [])
+  const onToolbarControls = useCallback((controls: EditorToolbarControls | null) => {
+    controlsRef.current = controls
+  }, [])
 
   useEffect(() => subscribeCenterFile(() => setPath(getCenterFile(sessionId))), [sessionId])
+
+  // A file swap clears any stale hoisted toolbar state (the hosted editor
+  // reports its own fresh state on re-render).
+  useEffect(() => { setToolbar(null) }, [content])
 
   useEffect(() => {
     setContent(null)
@@ -118,18 +135,67 @@ export function CenterFileView(props: CenterFileViewProps): ReactNode {
   if (content === null) {
     return <div className={css.centerFileEmpty}>{t('loading')}</div>
   }
+  const saveLabel = toolbar?.saveState === 'saving'
+    ? t('loading')
+    : toolbar?.saveState === 'saved'
+      ? t('saved')
+      : toolbar?.saveState === 'failed' ? t('saveFailed') : ''
   return (
-    <div className={css.centerFileEditor}>
+    <div className={css.editor}>
+      <div className={css.editorHeader}>
+        {toolbar?.modes === true && (
+          <div className={css.editorModeToggle}>
+            <button
+              type="button"
+              className={clsx(css.editorModeButton, toolbar.mode === 'preview' && css.editorModeActive)}
+              onClick={() => { controlsRef.current?.setMode('preview') }}
+            >
+              {t('preview')}
+            </button>
+            <button
+              type="button"
+              className={clsx(css.editorModeButton, toolbar.mode === 'edit' && css.editorModeActive)}
+              onClick={() => { controlsRef.current?.setMode('edit') }}
+            >
+              {t('edit')}
+            </button>
+          </div>
+        )}
+        {toolbar?.dirty === true && <span className={css.dirtyDot} title={t('unsaved')} />}
+        {toolbar?.editable === true && (
+          <button
+            type="button"
+            className={css.iconButton}
+            aria-label={t('save')}
+            title={`${t('save')} (Ctrl/Cmd+S)`}
+            onClick={() => { controlsRef.current?.save() }}
+          >
+            <IconCheckOutline16 size={14} />
+          </button>
+        )}
+        {saveLabel !== '' && (
+          <span className={clsx(css.editorStatus, toolbar?.saveState === 'failed' && css.editorStatusError)}>
+            {saveLabel}
+          </span>
+        )}
+      </div>
       {content.truncated && <div className={css.centerFileError}>{t('editorSearchTruncated')}</div>}
-      <LazyTextEditor
-        ctx={ctx as never}
-        store={store}
-        scope={scope}
-        path={path}
-        title={path}
-        content={content.text}
-        viewerId={ext === 'md' || ext === 'markdown' ? 'markdown' : 'code'}
-      />
+      <div className={css.editorBody}>
+        <div className={css.editorMain}>
+          <LazyTextEditor
+            ctx={ctx as never}
+            store={store}
+            scope={scope}
+            path={path}
+            title={path}
+            content={content.text}
+            viewerId={ext === 'md' || ext === 'markdown' ? 'markdown' : 'code'}
+            toolbar="host"
+            onToolbarState={onToolbarState}
+            onToolbarControls={onToolbarControls}
+          />
+        </div>
+      </div>
     </div>
   )
 }

@@ -265,7 +265,11 @@ The GitHub topic [`dsh-better-sidebar`](https://github.com/topics/dsh-better-sid
 
 **Supported DSH versions**: <a href="https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions"><img alt="Supported DSH versions (v0.18.0): 0.1.2-rc.1+" src="https://img.shields.io/badge/DSH-0.1.2--rc.1%2B-4d6bfe" /></a> · full release history on the [Releases](https://github.com/iPlykcor/DSH-WorkSpace/releases) page
 
-### v0.0.5 (this fork, latest)
+### v0.0.6 (this fork, latest)
+
+- 🧷 **Fixed center-file-view toolbar**: the preview/edit/save icons no longer scroll away with the content — a fixed header like the sidebar. See [CHANGELOG.md](./CHANGELOG.md).
+
+### v0.0.5 (this fork)
 
 - 🖼️ **Center-view pptx scale fix**: the Office view now fills the container (width/height 100%), so `.pptx` in the center "Files" view scales to the container width instead of rendering as tiny thumbnails. See [CHANGELOG.md](./CHANGELOG.md).
 
