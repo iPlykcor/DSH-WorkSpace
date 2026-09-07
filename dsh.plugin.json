@@ -1,6 +1,6 @@
 {
   "id": "dsh-external/dsh-workspace",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "main": "./lib/index.js",
   "description": "DSH-WorkSpace：VSCode 风格右侧侧边栏（资源管理器/编辑器/终端/Git/浏览器）+ 多根工作区(.dsh-workspace)、目录读写权限、只读写入检测、中心列文件视图。基于 dsh-better-sidebar 改进（见 README 致谢）",
   "engines": {

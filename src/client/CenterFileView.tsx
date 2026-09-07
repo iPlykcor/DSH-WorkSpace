@@ -102,8 +102,11 @@ export function CenterFileView(props: CenterFileViewProps): ReactNode {
   }
   const officeViewerId = officeViewerIdForExt(ext)
   if (officeViewerId !== undefined) {
+    // Office files fill the whole center area (a document viewer), NOT the
+    // centered media wrapper — the pptx fitMode scales against the container
+    // width, and the media wrapper's flex centering would give it a tiny box.
     return (
-      <div className={css.centerFileMedia}>
+      <div style={{ height: '100%', width: '100%' }}>
         <OfficeView scope={scope} path={path} viewerId={officeViewerId} title={path} />
       </div>
     )

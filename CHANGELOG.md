@@ -6,6 +6,11 @@
 > 本 fork 基于 [@omdsh-dev/DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar)（MIT）改进，
 > 保留上游架构与许可，仅做增益。上游 v0.12.0 ~ v0.18.x 的历史记录见上游 README / Releases，此处不重复。
 
+## [v0.0.5] - 2026-09-07
+
+### 修复
+- **中间列 pptx 显示比例过小**：OfficeView 改为显式撑满容器宽高（`width/height:100%`），中间“文件”视图不再用居中的媒体包装——pptx 在中间列按容器宽度正常缩放，不再被缩成小缩略图。
+
 ## [v0.0.4] - 2026-09-07
 
 ### 修复

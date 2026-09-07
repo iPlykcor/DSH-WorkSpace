@@ -78,6 +78,7 @@ export function OfficeView({ viewerId, customData, scope, path }: OfficeViewProp
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
+    width: '100%',
     position: 'relative',
   }
   const stage: React.CSSProperties = { flex: 1, overflow: 'auto', minHeight: 0 }
