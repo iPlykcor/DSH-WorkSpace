@@ -1,6 +1,6 @@
 {
   "name": "dsh-workspace",
-  "version": "0.0.6",
+  "version": "0.1.0",
   "description": "DSH web plugin: a VSCode-like right sidebar (explorer / editor / terminal / git / browser) extended with multi-root workspaces (.dsh-workspace), per-folder read/write, read-only write detection, and a center-column file view. Derived from dsh-better-sidebar (see README for attribution). Isolated per conversation session; exposes a service for other plugins to register sidebar tabs and file viewers.",
   "type": "module",
   "repository": {
@@ -112,6 +112,7 @@
     }
   },
   "dependencies": {
+    "7z-wasm": "^1.2.0",
     "@aiden0z/pptx-renderer": "^1.2.4",
     "@codemirror/commands": "^6.10.4",
     "@codemirror/lang-cpp": "^6.0.3",
@@ -138,8 +139,10 @@
     "clsx": "^2.1.1",
     "docx-preview": "^0.4.0",
     "dompurify": "^3.4.14",
+    "fflate": "^0.8.3",
     "mermaid": "^11.16.1",
     "node-pty": "^1.1.0",
+    "node-unrar-js": "^2.0.2",
     "react-icons": "5.7.0",
     "rxjs": "^7.8.2",
     "schemastery": "^3.18.0",

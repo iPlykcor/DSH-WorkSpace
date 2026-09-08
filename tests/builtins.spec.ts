@@ -213,10 +213,10 @@ describe('built-in tab registrations', () => {
 })
 
 describe('built-in file viewer registrations', () => {
-  it('registers the 11 built-in file viewers (office previews are built in: docx/xlsx/pptx)', () => {
+  it('registers the 12 built-in file viewers (office previews are built in: docx/xlsx/pptx)', () => {
     const { service } = setup()
     expect(service.getFileViewers().map(v => v.id).sort()).toEqual(
-      ['binary-download', 'code', 'docx', 'dsh-workspace', 'html', 'image', 'markdown', 'pdf', 'presentation', 'spreadsheet', 'video'],
+      ['binary-download', 'code', 'docx', 'dsh-workspace', 'html', 'image', 'markdown', 'pdf', 'presentation', 'spreadsheet', 'video', 'zip'],
     )
     // Office previews ARE built in (new formats): docx/xlsx/pptx are claimed by
     // their own viewers, not the download-only binary viewer.

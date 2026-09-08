@@ -277,6 +277,7 @@ export const ko: Record<string, string> = {
   viewerCode: '코드',
   viewerBinary: '이진 다운로드',
   viewerHtml: 'HTML',
+  viewerZip: 'ZIP 압축 파일',
   viewerDocx: 'Word 문서',
   viewerSpreadsheet: '스프레드시트',
   viewerPresentation: '프레젠테이션',

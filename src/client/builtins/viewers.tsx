@@ -29,8 +29,9 @@ import { BinaryDownload } from '../binary-download.tsx'
 import { WorkspaceFileView } from '../WorkspaceFileView.tsx'
 import { VideoView } from '../VideoView.tsx'
 import { OfficeView } from '../OfficeView.tsx'
+import { ZipView } from '../ZipView.tsx'
 import { MEDIA_EXTS } from '../media.ts'
-import { mediaUrl } from '../api.ts'
+import { blobUrl } from '../api.ts'
 import {
   IconImageOutline16,
   IconMarkdownOutline16,
@@ -141,7 +142,7 @@ export function builtinViewers(): readonly FileViewerDescriptor[] {
       exts: ['docx'],
       fetchStrategy: 'custom',
       load: async (path, scope, signal) => {
-        const res = await fetch(mediaUrl(scope, path), { signal })
+        const res = await fetch(blobUrl(scope, path), { signal })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.arrayBuffer()
       },
@@ -154,7 +155,7 @@ export function builtinViewers(): readonly FileViewerDescriptor[] {
       exts: ['xlsx'],
       fetchStrategy: 'custom',
       load: async (path, scope, signal) => {
-        const res = await fetch(mediaUrl(scope, path), { signal })
+        const res = await fetch(blobUrl(scope, path), { signal })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.arrayBuffer()
       },
@@ -167,11 +168,28 @@ export function builtinViewers(): readonly FileViewerDescriptor[] {
       exts: ['pptx'],
       fetchStrategy: 'custom',
       load: async (path, scope, signal) => {
-        const res = await fetch(mediaUrl(scope, path), { signal })
+        const res = await fetch(blobUrl(scope, path), { signal })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.arrayBuffer()
       },
       component: (props) => <OfficeView {...props} />,
+    },
+    {
+      // Archives (zip / 7z / rar): browse like a folder (list/extract via the
+      // `zip` + `archive` chunks), preview files by extension (incl. Office +
+      // nested archives). The descriptor fetches the raw bytes; ZipView sniffs
+      // the format from the magic bytes and renders the tree.
+      id: 'zip',
+      title: () => t('viewerZip'),
+      icon: (size: number) => <IconOfficeOutline16 size={size} />,
+      exts: ['zip', '7z', 'rar'],
+      fetchStrategy: 'custom',
+      load: async (path, scope, signal) => {
+        const res = await fetch(blobUrl(scope, path), { signal })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.arrayBuffer()
+      },
+      component: (props) => <ZipView {...props} />,
     },
     {
       id: 'code',

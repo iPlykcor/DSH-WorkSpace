@@ -134,6 +134,11 @@ export function mediaTypeForPath(path: string): string {
   return MEDIA_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream'
 }
 
+/** Raw-binary cap for /sidebar/blob (archive/office containers, which can
+ *  exceed the 20MB mediaLimit). Large enough for a whole zip/office doc; kept
+ *  bounded so a huge file cannot OOM the host (readFile buffers fully). */
+export const BLOB_LIMIT = 512 * 1024 * 1024
+
 /** A parsed HTTP Range request for one byte range of a known-size resource. */
 export type ByteRange =
   | { kind: 'full'; start: number; end: number }
@@ -1175,6 +1180,45 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
       }
     },
   }), 'dsh-workspace: /sidebar/file media route')
+
+  // ── Raw binary route for large containers (zip / office) ──────────────────
+  // /sidebar/file caps at mediaLimit (20MB); archive/office containers can
+  // exceed that, so this route serves raw bytes without the mediaLimit cap
+  // (only a generous BLOB_LIMIT). Same workspace read fence; the bytes are
+  // read fully (the zip/office viewers need the whole buffer).
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'prefix',
+    path: '/sidebar/blob',
+    handler: async (req, res) => {
+      if (!fence(req)) {
+        res.writeHead(403)
+        res.end('forbidden')
+        return
+      }
+      if (req.method !== 'GET') {
+        res.writeHead(405)
+        res.end()
+        return
+      }
+      try {
+        const url = new URL(req.url ?? '/', 'http://dsh.internal')
+        const sessionId = url.searchParams.get('sessionId')
+        const raw = url.searchParams.get('path')
+        if (sessionId === null || raw === null) throw new SidebarError('bad-request', 'sessionId and path are required')
+        const cwd = await sessionCwdOf(ctx, sessionId, url.searchParams.get('cwd') ?? undefined)
+        const path = await wsReadTarget(sessionId, cwd, raw)
+        const info = await stat(path)
+        if (!info.isFile()) throw new SidebarError('fs-error', 'not a file', 400)
+        if (info.size > BLOB_LIMIT) throw new SidebarError('fs-error', 'too large', 400)
+        const type = mediaTypeForPath(path)
+        const body = await readFile(path)
+        res.writeHead(200, { 'content-type': type, 'cache-control': 'no-cache' })
+        res.end(body)
+      } catch (error) {
+        writeError(res, error)
+      }
+    },
+  }), 'dsh-workspace: /sidebar/blob binary route')
 
   // ── Streaming media route (audio/video with HTTP Range) ──────────────────
   // Serves audio/video bytes through a dedicated /sidebar/video route that

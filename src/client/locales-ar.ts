@@ -286,6 +286,7 @@ export const ar: Record<string, string> = {
   viewerCode: 'كود',
   viewerBinary: 'تنزيل ثنائي',
   viewerHtml: 'HTML',
+  viewerZip: 'أرشيف مضغوط',
   viewerDocx: 'مستند وورد',
   viewerSpreadsheet: 'جدول بيانات',
   viewerPresentation: 'عرض تقديمي',

@@ -40,6 +40,7 @@
  *
  * Types ship from lib/types (tsc -p tsconfig.build.json), not from tsdown.
  */
+import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, dirname, join, relative, resolve as resolvePath, sep } from 'node:path'
 import { builtinModules, createRequire } from 'node:module'
@@ -215,7 +216,9 @@ function chunkBundle(name: string): UserConfig {
     },
     noExternal: (id: string) => (CLIENT_EXTERNALS.includes(id) ? undefined : true),
     plugins: [
-      ...(name === 'office' ? [officeNodeShims()] : []),
+      ...(name === 'office' || name === 'zip' || name === 'archive' ? [browserNodeShims()] : []),
+      ...(name === 'archive' ? [archiveChunkAliases(), inlineWasmPlugin()] : []),
+      ...(name === 'archive' ? [archiveEnvPatch()] : []),
       purityGatePlugin(),
       makeCssPlugin('dsh-workspace'),
       ...(name === 'mermaid' ? [mermaidChunkAliases()] : []),
@@ -243,25 +246,98 @@ type BuildPlugin = NonNullable<UserConfig['plugins']>
  * the specifier there instead of special-casing the gate. Resolved relative
  * to mermaid's own dependency tree (pnpm/npm layout agnostic).
  */
-/** Node-only builtins the office libs import (SheetJS stubs these via its own
+/** Node-only builtins the office/zip libs import (SheetJS stubs these via its own
  *  `browser` field: `{ fs:false, stream:false, buffer:false, crypto:false,
- *  process:false }`). The office chunk replaces them with an empty module
- *  before the purity gate so a browser bundle can build — those code paths are
- *  Node-only and never run in the browser. */
-const OFFICE_NODE_STUBS = new Set([
+ *  process:false }`; fflate references `module`). The chunks replace them with an
+ *  empty module before the purity gate so a browser bundle can build — those code
+ *  paths are Node-only and never run in the browser. */
+const BROWSER_NODE_STUBS = new Set([
   'fs', 'stream', 'buffer', 'crypto', 'path', 'os', 'util', 'events', 'zlib',
-  'url', 'querystring', 'readable-stream', 'child_process',
+  'url', 'querystring', 'readable-stream', 'child_process', 'module', 'process',
+  'assert', 'tty', 'net', 'http', 'https',
 ])
-function officeNodeShims(): BuildPlugin {
+function browserNodeShims(): BuildPlugin {
   return {
-    name: 'dsh-office-node-shims',
+    name: 'dsh-browser-node-shims',
     resolveId(source: string) {
-      if (OFFICE_NODE_STUBS.has(source)) return `\0dsh-office-stub:${source}`
+      if (BROWSER_NODE_STUBS.has(source)) return `\0dsh-browser-stub:${source}`
       return null
     },
     load(id: string) {
-      if (id.startsWith('\0dsh-office-stub:')) return 'export default {};'
+      if (id.startsWith('\0dsh-browser-stub:')) return 'export default {};'
       return null
+    },
+  }
+}
+
+/**
+ * Archive-chunk-only alias: pin `7z-wasm` to its ESM-free UMD build. The
+ * package `module` entry (`7zz.es6.js`) uses `import.meta.url` and a
+ * dynamic `await import("module")` for its Node branch — bundling it into a
+ * CJS browser chunk trips rolldown. The UMD build (`7zz.umd.js`) is a plain
+ * CommonJS closure that exports the factory and references no `import.meta`,
+ * so it bundles cleanly. The chunk source still writes `import SevenZip from
+ * '7z-wasm'` (typed via the package index.d.ts); the alias is build-only.
+ */
+function archiveChunkAliases(): BuildPlugin {
+  const sevenZipUmd = resolvePath(
+    dirname(require.resolve('7z-wasm/package.json')),
+    '7zz.umd.js',
+  )
+  return {
+    name: 'dsh-archive-7z-umd-alias',
+    resolveId(source: string) {
+      if (source === '7z-wasm') return sevenZipUmd
+      return null
+    },
+  }
+}
+
+/**
+ * Archive-chunk-only plugin: inline each wasm payload as a base64 default
+ * export so the chunk is self-contained (offline/intranet single-install).
+ * The virtual modules `dsh-wasm/7z` and `dsh-wasm/unrar` resolve to the
+ * .wasm files in the plugin's own dependency tree at build time.
+ */
+const ARCHIVE_WASM: Record<string, string> = {
+  'dsh-wasm/7z': resolvePath(dirname(require.resolve('7z-wasm/package.json')), '7zz.wasm'),
+  'dsh-wasm/unrar': resolvePath(dirname(require.resolve('node-unrar-js/package.json')), 'dist', 'js', 'unrar.wasm'),
+}
+function inlineWasmPlugin(): BuildPlugin {
+  return {
+    name: 'dsh-archive-inline-wasm',
+    resolveId(source: string) {
+      if (source in ARCHIVE_WASM) return `\0dsh-wasm:${source}`
+      return null
+    },
+    load(id: string) {
+      const match = /^\0dsh-wasm:(dsh-wasm\/.+)$/.exec(id)
+      if (match === null || match[1] === undefined) return null
+      const file = ARCHIVE_WASM[match[1]]
+      if (file === undefined) return null
+      return `export default ${JSON.stringify(readFileSync(file).toString('base64'))};`
+    },
+  }
+}
+
+/**
+ * Archive-chunk-only plugin: undo the build-time environment folding of the
+ * emscripten glues. oxc constant-folds `ENVIRONMENT_IS_NODE` /
+ * `ENVIRONMENT_IS_WEB` from the BUILD-time `process`/`window` (Node), so the
+ * unrar glue ships `ENVIRONMENT_IS_NODE = true` and takes its Node branch in
+ * the browser — which reads `__dirname` / `require("fs")` and throws
+ * "`__dirname` is not defined". After bundling, force the browser environment
+ * on the output so both glues take the WEB branch (they still get their bytes
+ * via the inlined `wasmBinary`, never a URL/fs fetch).
+ */
+function archiveEnvPatch(): BuildPlugin {
+  return {
+    name: 'dsh-archive-env-patch',
+    renderChunk(code: string, chunk: { name?: string }) {
+      if (chunk.name !== 'archive') return null
+      return code
+        .replace(/var ENVIRONMENT_IS_NODE\s*=\s*(true|!0);/g, 'var ENVIRONMENT_IS_NODE = false;')
+        .replace(/var ENVIRONMENT_IS_WEB\s*=\s*false;/g, 'var ENVIRONMENT_IS_WEB = true;')
     },
   }
 }
@@ -348,7 +424,7 @@ function makeCssPlugin(pluginId: string): BuildPlugin {
 }
 
 /** The lazy chunk names (keep in sync with src/bundle-route.ts CHUNK_NAMES). */
-const CHUNKS = ['terminal', 'editor', 'mermaid', 'locale', 'office']
+const CHUNKS = ['terminal', 'editor', 'mermaid', 'locale', 'office', 'zip', 'archive']
 
 export default [
   {

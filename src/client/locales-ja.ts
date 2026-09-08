@@ -304,6 +304,7 @@ export const ja: Record<string, string> = {
   viewerCode: 'コード',
   viewerBinary: 'バイナリダウンロード',
   viewerHtml: 'HTML',
+  viewerZip: 'ZIPアーカイブ',
   viewerDocx: 'Word文書',
   viewerSpreadsheet: '表計算',
   viewerPresentation: 'スライド',

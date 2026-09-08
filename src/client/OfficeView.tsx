@@ -12,7 +12,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { loadChunk } from './chunk-loader.ts'
-import { mediaUrl, type SessionScope } from './api.ts'
+import { blobUrl, type SessionScope } from './api.ts'
 import { t } from './locales.ts'
 import css from './sidebar.module.css'
 
@@ -92,7 +92,7 @@ export function OfficeView({ viewerId, customData, scope, path }: OfficeViewProp
 }
 
 async function fetchBytes(scope: SessionScope, path: string, signal?: AbortSignal): Promise<ArrayBuffer> {
-  const res = await fetch(mediaUrl(scope, path), { signal })
+  const res = await fetch(blobUrl(scope, path), { signal })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.arrayBuffer()
 }

@@ -285,6 +285,7 @@ export const tr: Record<string, string> = {
   viewerCode: 'Kod',
   viewerBinary: 'İkili indirme',
   viewerHtml: 'HTML',
+  viewerZip: 'ZIP arşivi',
   viewerDocx: 'Word belgesi',
   viewerSpreadsheet: 'Elektronik tablo',
   viewerPresentation: 'Sunum',

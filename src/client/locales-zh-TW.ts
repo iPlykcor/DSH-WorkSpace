@@ -300,6 +300,7 @@ export const zhTW: Record<string, string> = {
   viewerCode: '程式碼',
   viewerBinary: '二進位下載',
   viewerHtml: 'HTML',
+  viewerZip: 'ZIP 壓縮檔',
   viewerDocx: 'Word 文件',
   viewerSpreadsheet: '試算表',
   viewerPresentation: '簡報',

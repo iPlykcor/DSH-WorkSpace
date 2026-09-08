@@ -283,6 +283,7 @@ export const nl: Record<string, string> = {
   viewerCode: 'Code',
   viewerBinary: 'Binaire download',
   viewerHtml: 'HTML',
+  viewerZip: 'ZIP-archief',
   viewerDocx: 'Word-document',
   viewerSpreadsheet: 'Spreadsheet',
   viewerPresentation: 'Presentatie',

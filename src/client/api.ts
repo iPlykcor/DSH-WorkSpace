@@ -500,6 +500,17 @@ export function videoUrl(scope: SessionScope, path: string): string {
 }
 
 /**
+ * Absolute URL of the raw `/sidebar/blob` route (archive/office containers).
+ * Unlike {@link mediaUrl} it is NOT capped by the 20MB mediaLimit — only a
+ * generous BLOB_LIMIT (512MB). Zip/office viewers fetch bytes through this.
+ */
+export function blobUrl(scope: SessionScope, path: string): string {
+  const params = new URLSearchParams({ sessionId: scope.sessionId, path })
+  if (scope.cwd !== undefined && scope.cwd !== '') params.set('cwd', scope.cwd)
+  return `/sidebar/blob?${params.toString()}`
+}
+
+/**
  * Absolute URL of the HTML preview route (see html-route.ts): the path is
  * fully encoded so the previewed page's relative assets resolve back into
  * the same route with the session scope intact. The UNC marker is

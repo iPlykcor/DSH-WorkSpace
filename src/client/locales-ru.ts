@@ -282,6 +282,7 @@ export const ru: Record<string, string> = {
   viewerCode: 'Код',
   viewerBinary: 'Бинарная загрузка',
   viewerHtml: 'HTML',
+  viewerZip: 'ZIP-архив',
   viewerDocx: 'Документ Word',
   viewerSpreadsheet: 'Электронная таблица',
   viewerPresentation: 'Презентация',

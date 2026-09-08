@@ -108,6 +108,7 @@ describe('host plugin smoke', () => {
       '/sidebar/upload',
       '/sidebar/bundle',
       '/sidebar/file',
+      '/sidebar/blob',
       '/sidebar/video',
       '/sidebar/html',
     ])

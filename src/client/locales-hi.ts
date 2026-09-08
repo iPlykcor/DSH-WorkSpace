@@ -285,6 +285,7 @@ export const hi: Record<string, string> = {
   viewerCode: 'कोड',
   viewerBinary: 'बाइनरी डाउनलोड',
   viewerHtml: 'HTML',
+  viewerZip: 'ZIP संग्रह',
   viewerDocx: 'Word दस्तावेज़',
   viewerSpreadsheet: 'स्प्रेडशीट',
   viewerPresentation: 'प्रेज़ेंटेशन',

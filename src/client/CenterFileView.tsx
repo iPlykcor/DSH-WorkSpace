@@ -13,11 +13,13 @@ import { useCallback, useEffect, useRef, useState, type ComponentType, type Reac
 import clsx from 'clsx'
 import { IconCheckOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { api, mediaUrl, videoUrl } from './api.ts'
+import { isArchiveExt } from './archive-format.ts'
 import { getCenterFile, subscribeCenterFile } from './center-file.ts'
 import { isAudioExt, isMediaExt } from './media.ts'
 import { isOfficeExt, officeViewerIdForExt } from './office-detect.ts'
 import { lazyChunkComponent } from './lazy-chunk.tsx'
 import { OfficeView } from './OfficeView.tsx'
+import { ZipView } from './ZipView.tsx'
 import type { EditorToolbarControls, EditorToolbarState, FileViewerProps } from './service.ts'
 import type { SidebarStore } from './state.ts'
 import { t } from './locales.ts'
@@ -73,6 +75,7 @@ export function CenterFileView(props: CenterFileViewProps): ReactNode {
     if (ext === 'pdf') return
     if (isMediaExt(ext)) return
     if (isOfficeExt(ext)) return
+    if (isArchiveExt(ext)) return
     let cancelled = false
     api.fsRead({ sessionId }, path)
       .then((result) => {
@@ -125,6 +128,13 @@ export function CenterFileView(props: CenterFileViewProps): ReactNode {
     return (
       <div style={{ height: '100%', width: '100%' }}>
         <OfficeView scope={scope} path={path} viewerId={officeViewerId} title={path} />
+      </div>
+    )
+  }
+  if (isArchiveExt(ext)) {
+    return (
+      <div style={{ height: '100%', width: '100%' }}>
+        <ZipView scope={scope} path={path} title={path} />
       </div>
     )
   }

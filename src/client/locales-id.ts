@@ -283,6 +283,7 @@ export const id: Record<string, string> = {
   viewerCode: 'Kode',
   viewerBinary: 'Unduhan biner',
   viewerHtml: 'HTML',
+  viewerZip: 'Arsip ZIP',
   viewerDocx: 'Dokumen Word',
   viewerSpreadsheet: 'Spreadsheet',
   viewerPresentation: 'Presentasi',

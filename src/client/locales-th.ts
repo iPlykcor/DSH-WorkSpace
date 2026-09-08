@@ -285,6 +285,7 @@ export const th: Record<string, string> = {
   viewerCode: 'โค้ด',
   viewerBinary: 'ดาวน์โหลดไบนารี',
   viewerHtml: 'HTML',
+  viewerZip: 'ไฟล์ ZIP',
   viewerDocx: 'เอกสาร Word',
   viewerSpreadsheet: 'สเปรดชีต',
   viewerPresentation: 'งานนำเสนอ',

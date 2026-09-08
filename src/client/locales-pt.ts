@@ -268,6 +268,7 @@ export const pt: Record<string, string> = {
   viewerCode: 'Código',
   viewerBinary: 'Download binário',
   viewerHtml: 'HTML',
+  viewerZip: 'Arquivo ZIP',
   viewerDocx: 'Documento Word',
   viewerSpreadsheet: 'Planilha',
   viewerPresentation: 'Apresentação',

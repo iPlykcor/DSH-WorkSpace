@@ -268,6 +268,7 @@ export const sv: Record<string, string> = {
   viewerCode: 'Kod',
   viewerBinary: 'Binär nedladdning',
   viewerHtml: 'HTML',
+  viewerZip: 'ZIP-arkiv',
   viewerDocx: 'Word-dokument',
   viewerSpreadsheet: 'Kalkylark',
   viewerPresentation: 'Presentation',

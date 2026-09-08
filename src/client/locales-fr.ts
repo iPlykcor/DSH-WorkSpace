@@ -278,6 +278,7 @@ export const fr: Record<string, string> = {
   viewerCode: 'Code',
   viewerBinary: 'Téléchargement binaire',
   viewerHtml: 'HTML',
+  viewerZip: 'Archive ZIP',
   viewerDocx: 'Document Word',
   viewerSpreadsheet: 'Tableur',
   viewerPresentation: 'Présentation',

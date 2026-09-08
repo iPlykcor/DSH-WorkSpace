@@ -276,6 +276,7 @@ export const it: Record<string, string> = {
   viewerCode: 'Codice',
   viewerBinary: 'Download binario',
   viewerHtml: 'HTML',
+  viewerZip: 'Archivio ZIP',
   viewerDocx: 'Documento Word',
   viewerSpreadsheet: 'Foglio di calcolo',
   viewerPresentation: 'Presentazione',

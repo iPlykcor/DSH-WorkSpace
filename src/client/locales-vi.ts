@@ -285,6 +285,7 @@ export const vi: Record<string, string> = {
   viewerCode: 'Mã',
   viewerBinary: 'Tải nhị phân',
   viewerHtml: 'HTML',
+  viewerZip: 'Kho ZIP',
   viewerDocx: 'Tài liệu Word',
   viewerSpreadsheet: 'Bảng tính',
   viewerPresentation: 'Bài thuyết trình',
