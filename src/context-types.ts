@@ -500,6 +500,62 @@ export interface SidebarAgent {
   }
 }
 
+/** One guide entry the right-Sidebar guide page offers (subset of the 0.1.5 contract). */
+export interface SidebarRightGuideEntryFace {
+  readonly order: number
+  readonly title: () => string
+  readonly description?: () => string
+}
+
+/** One registered right-Sidebar tab type (subset of the 0.1.5 `SidebarRightTabDefinition`). */
+export interface SidebarRightTabDefinitionFace {
+  /** Implementation identity; also the key its body/title register under. */
+  readonly id: string
+  /** Type discriminator the tab is opened by. */
+  readonly kind: string
+  /** Resource-address globs this type recognizes; omit for a page type. */
+  readonly patterns?: readonly string[]
+  /** `extension` outranks `builtin` and may take over a builtin kind. */
+  readonly priority?: 'extension' | 'builtin' | 'fallback'
+  readonly canOpen?: (address: string) => boolean
+  readonly title: (address: string) => string
+  readonly guide?: readonly SidebarRightGuideEntryFace[]
+}
+
+/** The 0.1.5 right-Sidebar tab-type registry (`ctx.sidebarRightTabs`). */
+export interface SidebarRightTabsFace {
+  register(definition: SidebarRightTabDefinitionFace): () => void
+}
+
+/** One document-preview implementation (subset of the 0.1.5 contract). */
+export interface DocumentPreviewDefinitionFace {
+  /** Unique implementation name, also the key its body registers under. */
+  readonly id: string
+  /** File suffixes without a leading dot. */
+  readonly extensions: readonly string[]
+  /** External implementations win over product implementations. */
+  readonly priority?: 'builtin' | 'extension'
+  /** Localized implementation label, evaluated when the toolbar renders. */
+  readonly title: () => string
+  /** Content delivery mode supplied by the document owner. */
+  readonly loading: 'text-pages' | 'bytes-complete'
+  /** Whether the implementation consumes the document's wrap preference. */
+  readonly wrap?: boolean
+}
+
+/** The 0.1.5 document-preview registry (`ctx.documentPreviews`). */
+export interface DocumentPreviewsFace {
+  register(definition: DocumentPreviewDefinitionFace): () => void
+}
+
+/** The 0.1.5 right-Sidebar navigation face (`ctx.sidebarRight`). */
+export interface SidebarRightFace {
+  openTab(kind: string, options?: unknown): void
+  openResource(address: string, options?: unknown): void
+  isExpanded(): boolean
+  toggleExpanded(): void
+}
+
 /**
  * The shape this plugin actually consumes, intersected with the vendored
  * cordis `Context` below (see the file header for why intersection is used
@@ -514,6 +570,16 @@ export interface SidebarContextShape {
   webRuntime: SidebarWebRuntime
   /** The client slot registry (register/inject). */
   slots: SidebarSlotsService
+  /**
+   * DSH 0.1.5+ built-in right-Sidebar extension points. Absent on older hosts,
+   * where the plugin keeps its own body-portal sidebar. When present, the
+   * plugin registers its multi-root tab into the BUILT-IN Sidebar instead of
+   * mounting its own panel (the two would otherwise both draw the right column).
+   */
+  sidebarRightTabs?: SidebarRightTabsFace
+  sidebarRight?: SidebarRightFace
+  /** DSH 0.1.5+ document-preview registry (Office/archive/media viewers). */
+  documentPreviews?: DocumentPreviewsFace
   /** The settings service face (prefs persistence + namespace reads). */
   settings: SidebarSettingsService
   /** The invariant registry face. */

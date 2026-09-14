@@ -24,6 +24,10 @@ import { registerSettingsNavIcon } from './settings-nav-icon.ts'
 import { loadBootDecision } from './prefs.ts'
 import { SideCardSection } from './SideCardSection.tsx'
 import { CenterFileView } from './CenterFileView.tsx'
+import { registerMultiRootTab } from './multiroot-tab.tsx'
+import { registerDocumentPreviews } from './previews.tsx'
+import { registerEditorTab } from './editor-tab.tsx'
+import { registerGitTab } from './git-tab.tsx'
 import { api } from './api.ts'
 import { LOCALE_NS, attachLocale, attachBetterLocale, t, zh, en } from './locales.ts'
 import { loadChunk } from './chunk-loader.ts'
@@ -165,6 +169,24 @@ export function apply(ctx: Context): void {
     () => registerBuiltins(ctx, service, { terminalTitle: () => terminalTitle }),
     'dsh-workspace: register built-in tabs and viewers',
   )
+  // ── DSH 0.1.5+ built-in right Sidebar ────────────────────────────────────
+  // Only 0.1.5+ hosts publish `ctx.sidebarRightTabs` (the built-in Sidebar's
+  // tab registry). On those hosts the plugin must NOT mount its own
+  // body-portal panel — both would draw the right column — so it contributes
+  // its multi-root workspace as a tab in the built-in Sidebar instead. Older
+  // hosts keep the original behaviour unchanged.
+  const builtinSidebar = ctx.get('sidebarRightTabs') !== undefined
+  if (builtinSidebar) {
+    ctx.effect(() => registerMultiRootTab(ctx), 'dsh-workspace: multi-root tab (built-in Sidebar)')
+    // Office / archive / media previews into the built-in document-preview
+    // registry: the product ships text/markdown/code/image/pdf/html only, so
+    // these suffixes are this plugin's contribution.
+    ctx.effect(() => registerDocumentPreviews(ctx), 'dsh-workspace: document previews (built-in Sidebar)')
+    // Editable editor + Git panel as their own tab types (the product ships
+    // neither); both reuse the plugin's existing components and host routes.
+    ctx.effect(() => registerEditorTab(ctx, sidebarStore), 'dsh-workspace: editor tab (built-in Sidebar)')
+    ctx.effect(() => registerGitTab(ctx, sidebarStore), 'dsh-workspace: git tab (built-in Sidebar)')
+  }
   // A failure anywhere in the client lifecycle must never take the app down
   // silently: log with the plugin prefix and pin a visible diagnostic strip
   // to the page so a blank panel is never the only symptom. This strip is
@@ -199,6 +221,10 @@ export function apply(ctx: Context): void {
     // re-execute on HMR), changed ones are dropped for a clean re-fetch.
     void revalidateChunksOnReactivate()
     ctx.effect(() => {
+      // On a 0.1.5+ host the BUILT-IN right Sidebar owns the column; this
+      // body-portal panel must not mount or the two would double-draw it.
+      // The multi-root tab registered above is the 0.1.5 surface.
+      if (builtinSidebar) return () => {}
       let disposed = false
       let root: Root | undefined
       let host: HTMLDivElement | undefined
@@ -434,27 +460,36 @@ export function apply(ctx: Context): void {
     // it); the section reads/writes the prefs through the plugin's own
     // fenced settings route, keeps the shared store in sync, and renders the
     // declarative enable/disable inventory from the tab/viewer registry.
-    ctx.slots.inject('settings.section', () => ctx.slots.register({
-      name: 'settings.section',
-      id: 'better-sidebar',
-      order: 100,
-      label: () => t('settingsNav'),
-      inject: () => ({ store: sidebarStore, service }),
-    }, SideCardSection))
+    // 0.1.5+ hosts: the built-in Sidebar owns the workspace UI and this plugin
+    // contributes ONLY its multi-root tab, so the legacy Settings section (an
+    // inventory of this plugin's own tabs/viewers, which are not mounted on
+    // those hosts) is not registered. Older hosts keep it unchanged.
+    if (!builtinSidebar) {
+      ctx.slots.inject('settings.section', () => ctx.slots.register({
+        name: 'settings.section',
+        id: 'better-sidebar',
+        order: 100,
+        label: () => t('settingsNav'),
+        inject: () => ({ store: sidebarStore, service }),
+      }, SideCardSection))
+    }
 
     // Q2-A: a "文件" center-column view tab beside 对话/轨迹 (the
     // `conversation.view` view ring). It shows the file most recently opened
     // in that session's sidebar; the sidebar's open path writes into
-    // center-file.ts. Wrapped by the shell's own error boundary — a failure
-    // here must never break the center conversation.
-    ctx.slots.inject('conversation.view', () => ctx.slots.register({
-      name: 'conversation.view',
-      id: 'dshws-file',
-      order: 20,
-      locale: LOCALE_NS,
-      label: () => t('files'),
-      inject: (sessionId: string) => ({ sessionId, store: sidebarStore, ctx }),
-    }, CenterFileView))
+    // center-file.ts. Not registered on 0.1.5+ hosts, where this plugin
+    // contributes only its multi-root tab (the built-in Files tab owns file
+    // browsing there).
+    if (!builtinSidebar) {
+      ctx.slots.inject('conversation.view', () => ctx.slots.register({
+        name: 'conversation.view',
+        id: 'dshws-file',
+        order: 20,
+        locale: LOCALE_NS,
+        label: () => t('files'),
+        inject: (sessionId: string) => ({ sessionId, store: sidebarStore, ctx }),
+      }, CenterFileView))
+    }
   } catch (error) {
     fail('load', error)
   }
