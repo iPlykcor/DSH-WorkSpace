@@ -1,22 +1,26 @@
 /**
- * Vitest config: inline the npm-published `@deepseek-ai/*` packages whose
- * BUILT lib bundles reach css side-effect imports (e.g. `dsh-client-ui-primitives`
- * imports `katex/dist/katex.min.css` at the top of its `lib/index.js`).
+ * Vitest config.
  *
- * Installed from the npm registry these packages live under
- * `node_modules/.pnpm` and are externalized by vitest — Node then chokes on
- * the `.css` import. Inlining routes them through Vite's transform, which
- * stubs css imports (the default `css: false`).
+ * The only resolution override is the DSH PLATFORM MODULE the client bundle
+ * consumes: `@deepseek-ai/dsh-client-ui-primitives` is a peerDependency that
+ * the host injects at mount time (the purity gate keeps it external), and its
+ * own transitive dependencies live in the host's install rather than this
+ * repo's — so importing the real built bundle from a test cannot be resolved.
+ * It is aliased to a no-op stub; see the stub's doc for the reasoning.
  */
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
-  test: {
-    server: {
-      deps: {
-        inline: [/@deepseek-ai\/dsh-client-ui-primitives/],
+  resolve: {
+    alias: [
+      {
+        find: /^@deepseek-ai\/dsh-client-ui-primitives$/,
+        replacement: fileURLToPath(new URL('./tests/stubs/dsh-client-ui-primitives.ts', import.meta.url)),
       },
-    },
+    ],
+  },
+  test: {
     // `*.e2e.ts` specs would belong to a browser lane; this package has none
     // (the Playwright config was removed with the workbench). The *.spec.*
     // naming convention already keeps them out of vitest — this exclude makes

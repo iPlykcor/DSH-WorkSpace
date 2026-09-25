@@ -33,10 +33,15 @@ pnpm lint
 pnpm build; pnpm pack
 $env:DSH_HOME = "$env:TEMP\dsh-smoke-$(Get-Random)"   # 绝不碰用户真实的 ~/.dsh
 dsh plugin --profile web add file:<tarball 绝对路径>
-dsh web --profile web --port 0                        # 用 0 端口，别占用户正在用的 GUI
+dsh web --port 0 --no-open                            # 用 0 端口，别占用户正在用的 GUI
 ```
 
-判据：宿主走到就绪行，且日志中没有该插件的 loader / inject / `duplicate prefix route` 失败。**客户端渲染需要浏览器自动化**（`@playwright/test` 已随工作台移除），没有它就不要声称验证了页签渲染。
+> `dsh web` **本身就是** `--profile web`：再显式传一次会被拒（`select a profile only once`）。
+>
+> 写临时清单文件**不要用 PowerShell 的 `-Encoding UTF8`**——PS 5.1 会写 BOM，JSON 解析直接失败（表现为 `workspace.activate` 返回 400）。用
+> `[System.IO.File]::WriteAllText($p, $json, (New-Object System.Text.UTF8Encoding($false)))`。
+
+判据：宿主走到就绪行，且日志中没有该插件的 loader / inject / `duplicate prefix route` 失败；再对 `POST /octopus/api/<method>` 打一轮探针（`session.cwd` / `workspace.state` / `workspace.activate` / `fs.tree` / `workspace.violations` / 未知方法 404 / 非 POST 405 / 坏 JSON 400），并确认冷会话（无活动作业区外的未知 sessionId）不返回 500。**客户端渲染需要浏览器自动化**（`@playwright/test` 已随工作台移除），没有它就不要声称验证了页签渲染——`tests/client-tab.spec.ts` 只锁注册与文案，不锁渲染。
 
 > **CI 与发布自动化已随工作台一并移除**（`.github/` 不在本包内）。需要 CI 时重新添加；当前发版是手动步骤。
 
@@ -68,7 +73,12 @@ dsh web --profile web --port 0                        # 用 0 端口，别占用
 - **用户文档**：[README.md](README.md)（安装、清单格式、权限模型、限制）。
 - **设计史**：[docs/plans/](docs/plans/)。已移除功能的完整历史见 git tag `archive/sidebar-workbench`。
 - **关键测试守护**：
+  - `tests/host-routes.spec.ts` —— 唯一宿主路由的端到端行为（信任围栏、方法分派、信封、作业区生命周期、根围栏、只读越权报告与还原、冷会话路径）；
+  - `tests/client-tab.spec.ts` —— 页签三重注册的身份一致性（type `id` 与两个座位 `key`）＋ 文案零死键；
+  - `tests/host-types.spec.ts` —— 手写结构镜像对真实宿主类型的编译期可赋值性（`inspect` 那类漂移的守门人）；
   - `tests/file-address.spec.ts` —— 文件地址对产品解析器的往返（最容易静默失配的一处）；
   - `tests/workspace-schema.spec.ts` —— 清单解析、JSONC、默认值；
   - `tests/workspace-policy.spec.ts` —— 根解析与读/写基集分类；
   - `tests/fs-tree.spec.ts` / `tests/fs-tree-symlink.spec.ts` / `tests/session-path.spec.ts` —— 基础设施模块。
+
+> 测试里**不要 import 真实的 `@deepseek-ai/dsh-client-ui-primitives`**：它是宿主注入的平台模块，其传递依赖（`clsx` 等）不在本仓库的 dev 依赖树里，导入会直接解析失败。`vitest.config.ts` 把该 specifier 别名到 `tests/stubs/dsh-client-ui-primitives.ts`；类型检查仍对着真实包的声明，只有运行时用桩。

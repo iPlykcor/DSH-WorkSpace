@@ -120,7 +120,14 @@ async function eventsOfSession(
     } finally {
       await handle.close().catch(() => { /* teardown only; nothing to recover */ })
     }
-  } catch {
+  } catch (error) {
+    // An advisory report: a session that never persisted, or an unreadable log,
+    // yields an empty window rather than failing the request. It must not be
+    // SILENT either — an empty report reads as "no writes happened", and that
+    // claim cannot be faked just because the log was unreadable. `warn`, not
+    // `info`: this is a degraded answer to a trust-relevant question.
+    const detail = error instanceof Error ? error.message : String(error)
+    ctx.logger?.warn(`[octopus] violation report degraded for "${sessionId}": event log unreadable (${detail})`)
     return []
   }
 }

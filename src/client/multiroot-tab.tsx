@@ -248,7 +248,7 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
           rememberManifest(sessionId, result.workspace.manifestPath)
           setNotice(t('workspaceApplied'))
         })
-        .catch((failure: unknown) => { setError(messageOf(failure)) })
+        .catch((failure: unknown) => { setError(t('workspaceApplyFailed', { message: messageOf(failure) })) })
     }
 
     /** Leave the operation space (back to DSH's ordinary single root). */
