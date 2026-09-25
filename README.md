@@ -24,11 +24,23 @@
 
 ## 安装
 
+本包尚未发布到 npm。当前从**本地 tarball** 安装（在仓库根执行）：
+
 ```bash
-dsh plugin --profile web add dsh-octopus-operation-space
+pnpm build
+pnpm pack
+dsh plugin --profile web add file:D:/绝对路径/dsh-octopus-operation-space-0.1.0.tgz
 ```
 
-包内 `cordis.patch.yml` 会让该命令同时完成挂载（把插件行 `insert` 进 profile 的 bundle 栈），无需手工改 profile。
+包内 `cordis.patch.yml` 会让这条命令同时完成挂载（把插件行 `insert` 进 profile 的 bundle 栈），不需要手工改 profile。**安装后需要重启 `dsh web`** 才会加载。
+
+卸载：
+
+```bash
+dsh plugin --profile web remove dsh-octopus-operation-space
+```
+
+> `dsh plugin` 实际是在 profile 目录里执行 pnpm，所以增删都用 pnpm 的动词（`add` / `remove`）。
 
 ## 使用
 
@@ -98,6 +110,24 @@ pnpm lint
 ```
 
 `lib/` 产物约 270 KB（宿主 ESM + 两份客户端 CJS 闭包 + 类型声明）。
+
+### 验证
+
+静态与单元层：
+
+```bash
+pnpm typecheck && pnpm test && pnpm build && pnpm lint
+```
+
+真实挂载冒烟——打包 → 装进**全新临时 profile** → 起真实宿主 → 打 HTTP 探针 → 回收，一条命令跑完：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke.ps1
+```
+
+它**不碰你真实的 `~/.dsh`**（临时 `DSH_HOME`），用 `--port 0` 取随机空闲端口（不占你正在用的 GUI），结束后按监听端口回收宿主并删掉临时目录；退出码 0 表示 23 项检查全部通过。
+
+> 它**不覆盖浏览器渲染**：页签是否真的画出来需要浏览器自动化，本仓库没有那条 lane（`@playwright/test` 已随工作台移除）。冒烟只证明宿主装得上、路由通、围栏与越权还原符合预期。
 
 **依赖为零**：`dependencies` 为空；客户端只消费 DSH 冻结模块表里的平台模块（`react` / `react-dom` / `cordis` / `@deepseek-ai/dsh-client-ui-*`），由宿主在挂载时注入。
 

@@ -27,7 +27,15 @@ pnpm lint
 
 **构建纯度门**：client bundle 禁止 value-import 非白名单 `@deepseek-ai/*`（`tsdown.config.ts` 的 `purityGatePlugin` 拦截）；`import type` 被擦除不触发——类型可共享，运行时符号不行。跨包协作只能走 cordis 服务或平台模块表。
 
-**真实挂载冒烟**（改动宿主入口 / 清单解析 / 路由 / 包清单后至少跑一次）：打包 → 装进**全新 scratch profile** → 启动真实宿主。
+**真实挂载冒烟**（改动宿主入口 / 清单解析 / 路由 / 包清单后至少跑一次）。**一条命令跑完**：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke.ps1
+```
+
+`scripts/smoke.ps1` 做的事：打包 → 装进**全新临时** `DSH_HOME` → 起真实宿主（`--port 0`）→ 写 BOM-less 测试清单 → 打 23 项 HTTP 探针 → 按**监听端口**回收宿主进程并删临时目录。退出码 0 = 全过；它**绝不触碰用户真实的 `~/.dsh`**。
+
+手工等价步骤（脚本不可用时）：
 
 ```powershell
 pnpm build; pnpm pack
@@ -40,8 +48,10 @@ dsh web --port 0 --no-open                            # 用 0 端口，别占用
 >
 > 写临时清单文件**不要用 PowerShell 的 `-Encoding UTF8`**——PS 5.1 会写 BOM，JSON 解析直接失败（表现为 `workspace.activate` 返回 400）。用
 > `[System.IO.File]::WriteAllText($p, $json, (New-Object System.Text.UTF8Encoding($false)))`。
+>
+> PS 5.1 的两个实测陷阱（写这类脚本必踩，都已在 `smoke.ps1` 里绕开）：`[string](Get-Content $f -Raw)` 对**空文件**仍是 `$null`，`.Trim()` 直接硬报错；`$ErrorActionPreference = 'Stop'` 下把原生命令的 stderr 用 `2>&1` 并入管道**或** `2> file` 重定向，都会被当成终止性 `NativeCommandError`，必须局部降到 `Continue` 才能正常捕获。
 
-判据：宿主走到就绪行，且日志中没有该插件的 loader / inject / `duplicate prefix route` 失败；再对 `POST /octopus/api/<method>` 打一轮探针（`session.cwd` / `workspace.state` / `workspace.activate` / `fs.tree` / `workspace.violations` / 未知方法 404 / 非 POST 405 / 坏 JSON 400），并确认冷会话（无活动作业区外的未知 sessionId）不返回 500。**客户端渲染需要浏览器自动化**（`@playwright/test` 已随工作台移除），没有它就不要声称验证了页签渲染——`tests/client-tab.spec.ts` 只锁注册与文案，不锁渲染。
+判据：脚本全 PASS。等价的手工判据是：宿主走到就绪行、日志无 loader / inject / `duplicate prefix route` 失败、各路由状态码符合预期、冷会话不 500。**客户端渲染需要浏览器自动化**（`@playwright/test` 已随工作台移除），没有它就不要声称验证了页签渲染——`tests/client-tab.spec.ts` 只锁注册与文案，不锁渲染。
 
 > **CI 与发布自动化已随工作台一并移除**（`.github/` 不在本包内）。需要 CI 时重新添加；当前发版是手动步骤。
 
