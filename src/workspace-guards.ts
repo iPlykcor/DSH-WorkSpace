@@ -1,12 +1,10 @@
 /**
- * Path canonicalization over an ACTIVE multi-root workspace's canonical
- * bases (read = every root, write = the readWrite roots). Mirrors the
- * single-workspace semantics of path-security.ts (realpath through symlinks,
- * nearest-existing-ancestor walks for not-yet-existing write targets) but
- * checks containment against a SET of canonical bases instead of one cwd, so
- * the sidebar routes can serve manifest-declared folders outside the session
- * cwd while still refusing anything the manifest did not grant. The legacy
- * no-workspace path (path-security.ts) is untouched.
+ * Path canonicalization over an ACTIVE operation space's canonical bases
+ * (read = every root, write = the readWrite roots): realpath through symlinks
+ * plus nearest-existing-ancestor walks for not-yet-existing write targets, with
+ * containment checked against a SET of canonical bases instead of one cwd, so
+ * the plugin's routes can serve manifest-declared folders outside the session
+ * cwd while still refusing anything the manifest did not grant.
  */
 import { realpath } from 'node:fs/promises'
 import { dirname, join } from 'node:path'

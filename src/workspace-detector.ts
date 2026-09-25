@@ -1,8 +1,7 @@
 /**
  * Model-write detection for read-only workspace roots (强度 A v1): scans a
- * session's append-only event log with the SAME write/edit mapping the
- * changes-tab session lens uses (src/client/changes/ops.ts — constants kept
- * in lockstep, see its doc), resolves each candidate path canonically
+ * session's append-only event log using the write/edit tool mapping declared
+ * below, resolves each candidate path canonically
  * (nearest-existing-ancestor walk so a just-deleted file still classifies),
  * and keeps the operations that landed inside a `readOnly` root AFTER the
  * workspace was activated. Rollback is best-effort and user-invoked: a write
@@ -21,7 +20,7 @@ import { resolveSessionPath } from './session-path.ts'
 const WRITE_TOOLS = new Set(['write', 'create'])
 const EDIT_TOOLS = new Set(['edit', 'str_replace', 'str-replace-editor', 'multi-edit'])
 
-/** How many trailing events one scan folds (mirror of the changes.ops cap). */
+/** How many trailing events one scan folds (bounds the per-poll scan cost). */
 const SCAN_EVENT_CAP = 4000
 
 /** Cap of returned violations (newest kept). */
@@ -42,7 +41,7 @@ export interface WsViolation {
   canRestore: boolean
 }
 
-/** One folded write/edit call (port of changes/ops.ts extractFileOps subset). */
+/** One folded write/edit call. */
 interface WsOp {
   callId: string
   kind: 'write' | 'edit'

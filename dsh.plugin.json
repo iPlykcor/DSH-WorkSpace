@@ -1,10 +1,10 @@
 {
-  "id": "dsh-external/dsh-workspace",
-  "version": "0.2.0",
+  "id": "dsh-external/dsh-octopus-operation-space",
+  "version": "0.1.0",
   "main": "./lib/index.js",
-  "description": "DSH-WorkSpace：VSCode 风格右侧侧边栏（资源管理器/编辑器/终端/Git/浏览器）+ 多根工作区(.dsh-workspace)、目录读写权限、只读写入检测、中心列文件视图。基于 dsh-better-sidebar 改进（见 README 致谢）",
+  "description": "章鱼作业区（Octopus Operation Space）：为 DSH 内置右侧栏提供多根工作区。一份 JSONC 清单声明若干目录及各自读写权限，未声明的路径一律只读，由宿主侧路径围栏强制，并辅以尽力而为的越权检测与还原。刻意只做单一功能——文件打开与渲染交给 DSH 自身。",
   "engines": {
-    "dsh": ">=0.1.2-rc.1"
+    "dsh": ">=0.1.5"
   },
   "contributes": {
     "tools": [],

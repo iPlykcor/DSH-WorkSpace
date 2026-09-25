@@ -178,6 +178,95 @@ describe('read-only write detection + rollback', () => {
     expect(violations).toEqual([])
   })
 
+  it('flags an edit into a readOnly root and reverse-applies it on rollback', async () => {
+    const ws = await buildFixture()
+    const cwd = await real('cwd')
+    const target = join(cwd, 'nested', 'edited.txt')
+    // Simulate the world AFTER the intrusion: the edit really landed on disk.
+    await writeFile(target, 'alpha INTRUDER gamma', 'utf8')
+    const events: SidebarSessionEvent[] = [
+      callEvent('tool/call', 'e1', 'edit', JSON.stringify({
+        file_path: 'nested/edited.txt', old_string: 'BETA', new_string: 'INTRUDER',
+      }), ws.activatedAt + 1),
+      callEvent('tool/result', 'e1', 'edit', undefined, ws.activatedAt + 1),
+    ]
+    const violations = await scanWsViolations(ws, cwd, events)
+    expect(violations.map(v => v.callId)).toEqual(['e1'])
+    expect(violations[0]!.kind).toBe('edit')
+    // For an edit the flag is optimistic: the payload carries its own inverse,
+    // so a strategy exists. Whether it still APPLIES is only knowable at
+    // rollback time (the file may have changed since) — see the next test.
+    expect(violations[0]!.canRestore).toBe(true)
+    const result = await rollbackWsViolation(ws, cwd, events, 'e1')
+    expect(result.ok).toBe(true)
+    expect(await readFile(target, 'utf8')).toBe('alpha BETA gamma')
+  })
+
+  it('refuses an edit rollback when the file no longer contains the edit', async () => {
+    const ws = await buildFixture()
+    const cwd = await real('cwd')
+    const target = join(cwd, 'nested', 'moved-on.txt')
+    // The logged edit was later overwritten by something else, so its
+    // newString is gone: reverse-applying would corrupt the file.
+    await writeFile(target, 'completely different now', 'utf8')
+    const events: SidebarSessionEvent[] = [
+      callEvent('tool/call', 'e2', 'edit', JSON.stringify({
+        file_path: 'nested/moved-on.txt', old_string: 'BETA', new_string: 'INTRUDER',
+      }), ws.activatedAt + 1),
+      callEvent('tool/result', 'e2', 'edit', undefined, ws.activatedAt + 1),
+    ]
+    const result = await rollbackWsViolation(ws, cwd, events, 'e2')
+    expect(result.ok).toBe(false)
+    expect(result.message).toMatch(/file changed since the edit/)
+    expect(await readFile(target, 'utf8')).toBe('completely different now')
+  })
+
+  it('marks a write with no prior content in the window as unrestorable', async () => {
+    const ws = await buildFixture()
+    const cwd = await real('cwd')
+    const events: SidebarSessionEvent[] = [
+      callEvent('tool/call', 'w1', 'write', JSON.stringify({ file_path: 'nested/fresh.txt', content: 'new' }), ws.activatedAt + 1),
+      callEvent('tool/result', 'w1', 'write', undefined, ws.activatedAt + 1),
+    ]
+    const violations = await scanWsViolations(ws, cwd, events)
+    expect(violations.map(v => v.canRestore)).toEqual([false])
+    // Reported, but the host has no snapshot layer to restore from: the honest
+    // answer is "review it yourself", not a silent no-op success.
+    const result = await rollbackWsViolation(ws, cwd, events, 'w1')
+    expect(result.ok).toBe(false)
+    expect(result.message).toMatch(/no earlier content/)
+  })
+
+  it('ignores unsettled, errored and non-write calls', async () => {
+    const ws = await buildFixture()
+    const cwd = await real('cwd')
+    const after = ws.activatedAt + 1
+    const events: SidebarSessionEvent[] = [
+      // Settled, but the tool reported an error: nothing was written.
+      callEvent('tool/call', 'x2', 'write', JSON.stringify({ file_path: 'nested/e.txt', content: 'x' }), after),
+      {
+        type: 'tool/result',
+        seq: 0,
+        time: after,
+        data: {
+          message: {
+            source: { kind: 'tool', callId: 'x2' },
+            content: [{ type: 'tool-result', isError: true, content: [] }],
+          },
+        },
+      },
+      // Never settled: no result event for this call yet.
+      callEvent('tool/call', 'x3', 'write', JSON.stringify({ file_path: 'nested/r.txt', content: 'x' }), after),
+      // A read is not a write.
+      callEvent('tool/call', 'x4', 'read', JSON.stringify({ file_path: 'nested/read.txt' }), after),
+      callEvent('tool/result', 'x4', 'read', undefined, after),
+    ]
+    expect(await scanWsViolations(ws, cwd, events)).toEqual([])
+    const missing = await rollbackWsViolation(ws, cwd, events, 'nope')
+    expect(missing.ok).toBe(false)
+    expect(missing.message).toMatch(/no settled write\/edit/)
+  })
+
   it('buildWorkspacePolicy is testable without fs via an injected canonicalize', async () => {
     const parsed = parseWorkspaceManifest('{ "folders": ["/a", { "path": "/a/ro" }] }')
     expect(parsed.errors).toEqual([])

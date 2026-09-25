@@ -2,6 +2,17 @@ MIT License
 
 Copyright (c) 2026 dsh-external
 
+This package is derived in part from DSH-better-sidebar
+(https://github.com/omdsh-dev/DSH-better-sidebar),
+Copyright (c) 2026 omdsh-dev, released under the MIT License.
+The following files are derived from that work, in some cases modified:
+
+  src/fs-tree.ts
+  src/wire.ts
+  src/trust-fence.ts
+  src/session-path.ts
+  src/context-types.ts
+
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights

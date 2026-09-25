@@ -88,8 +88,12 @@ export const WS_MANIFEST_VERSION = 1
 /** Byte cap of one manifest file read by the host (config files stay small). */
 export const WS_MANIFEST_MAX_BYTES = 256 * 1024
 
-/** The manifest file extensions the workspace viewer claims. */
-export const WS_MANIFEST_EXTS = ['dsh-workspace'] as const
+/**
+ * The manifest file extensions this plugin claims. `.dsh-octopus` is the
+ * current name; `.dsh-workspace` stays accepted as an alias so manifests
+ * written against the feature's previous name keep working.
+ */
+export const WS_MANIFEST_EXTS = ['dsh-octopus', 'dsh-workspace'] as const
 
 const ACCESS_VALUES: readonly DshWorkspaceAccess[] = ['readWrite', 'readOnly']
 

@@ -1,6 +1,6 @@
 /**
- * The `.dsh-workspace` runtime skill: a plugin-bundled knowledge block the
- * DSH skill registry makes model-invocable, so the agent knows the format &amp;
+ * The `.dsh-octopus` runtime skill: a plugin-bundled knowledge block the DSH
+ * skill registry makes model-invocable, so the agent knows the format &amp;
  * workflow WITHOUT scanning for an example file. It rides this plugin (one
  * deploy); the host registers it via `ctx.skills.register(...)` at activation.
  *
@@ -30,15 +30,15 @@ export interface WorkspaceSkillDefinition {
 
 /** The markdown body shared by `source` and `content`. */
 const WORKSPACE_SKILL_BODY = [
-  '# DSH multi-root workspace (.dsh-workspace)',
+  '# DSH operation space (.dsh-octopus)',
   '',
-  'A `*.dsh-workspace` file defines a DSH "multi-root workspace": a list of folders the sidebar shows, each with an explicit read/write permission. Use this skill whenever you create or edit such a file — do not invent the format or search the workspace for an example.',
+  'A `*.dsh-octopus` file defines a DSH "operation space" (章鱼作业区): a list of folders the sidebar shows, each with an explicit read/write permission. Use this skill whenever you create or edit such a file — do not invent the format or search the workspace for an example.',
   '',
   '## Format (JSONC — comments and trailing commas are allowed)',
   '```jsonc',
   '{',
   '  "version": 1,',
-  '  "name": "My workspace",            // optional; the workspace bar + files-window tab title',
+  '  "name": "My operation space",     // optional; the operation-space tab title',
   '  "folders": [',
   '    { "path": "C:/repo/a", "access": "readWrite" },',
   '    { "path": "./docs" },            // relative to THIS file\'s directory',
@@ -56,23 +56,24 @@ const WORKSPACE_SKILL_BODY = [
   '- Relative `path` values resolve against the manifest file\'s own directory.',
   '- `folders` must be a non-empty array; each entry is a path string or `{path, name?, access?}`.',
   '- Absolute paths from other drives/shares are allowed (Windows, UNC).',
+  '- `.dsh-workspace` is still accepted as a legacy alias for the extension.',
   '',
   '## Applying changes (important)',
-  '- The file is the single source of truth. After you create or edit it, tell the user to re-open it (or click its "应用此工作区" button / the tree ⟳ refresh icon, which re-applies the active manifest).',
+  '- The file is the single source of truth. After you create or edit it, tell the user to re-open it in the operation-space tab (paste its path) or click that panel\'s refresh icon, which re-applies the active manifest.',
   '- The session cwd is auto-included as an implicit readWrite root unless the manifest lists it (then its listed access wins).',
-  '- Model native tools are still sandboxed to the session cwd; folders outside it (e.g. Desktop) are reachable by the sidebar, not by the model\'s tools.',
+  '- Model native tools are still sandboxed to the session cwd; folders outside it (e.g. Desktop) are reachable by the operation space, not by the model\'s tools.',
   '',
   '## Common asks',
-  '- "把这些目录建成工作区（目录1/2 读写、目录3 只读）" → create a `.dsh-workspace` with those `folders` and the right `access`.',
+  '- "把这些目录建成作业区（目录1/2 读写、目录3 只读）" → create a `.dsh-octopus` with those `folders` and the right `access`.',
   '- "把权限改成读写 / 加一个目录 / 删一个目录" → edit the matching `folders` entry, keep the rest intact, then ask the user to re-apply.',
 ].join('\n')
 
-/** The runtime skill the sidebar plugin registers for `*.dsh-workspace`. */
+/** The runtime skill this plugin registers for `*.dsh-octopus`. */
 export const WORKSPACE_SKILL: WorkspaceSkillDefinition = {
-  name: 'dsh-workspace',
+  name: 'dsh-octopus',
   rank: 250,
   invocation: { modelInvocable: true, userInvocable: true },
-  description: 'Create or edit a DSH multi-root workspace (.dsh-workspace) file; loading this skill teaches the exact JSONC schema, per-folder read/write semantics, and how to apply changes.',
+  description: 'Create or edit a DSH operation space (.dsh-octopus) file; loading this skill teaches the exact JSONC schema, per-folder read/write semantics, and how to apply changes.',
   source: WORKSPACE_SKILL_BODY,
   content: WORKSPACE_SKILL_BODY,
 }

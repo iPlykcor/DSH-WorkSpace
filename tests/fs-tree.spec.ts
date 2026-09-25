@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { resolve } from 'node:path'
 import { compareEntries, isWithin, parentOf, requireAbsolute, rootLabel } from '../src/fs-tree.ts'
-import { isWin32 } from './platform.ts'
+
+/** Platform gate for the Windows-only assertions below. */
+const isWin32 = process.platform === 'win32'
 
 describe('fs-tree', () => {
   it('sorts directories first, then names case-insensitively', () => {

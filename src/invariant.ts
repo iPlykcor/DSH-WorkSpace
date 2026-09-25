@@ -1,24 +1,23 @@
 /**
- * Package-owned invariant companion for `dsh-workspace`.
- * @module dsh-workspace/invariant
+ * Package-owned invariant companion for `dsh-octopus-operation-space`.
+ * @module dsh-octopus-operation-space/invariant
  */
 
 /* jscpd:ignore-start */
 import type { Context } from './context-types.ts'
 
-const PACKAGE_NAME = 'dsh-workspace'
+const PACKAGE_NAME = 'dsh-octopus-operation-space'
 
 /** Cordis companion plugin name. */
-export const name = 'dsh-workspace-invariant'
+export const name = 'dsh-octopus-operation-space-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the sidebar owns no service state or event protocol
- * of its own — every route is mounted under the host's webServer fence, the
- * pty lifecycle is exercised by the smoke spec, and the panel's store is a
- * plain snapshot registry asserted by the behavior specs. The route fence,
- * pty quota, and store semantics are each observed through their seams.
+ * No runtime invariant: this plugin owns no service state or event protocol of
+ * its own — the single route is mounted under the host's webServer fence and
+ * the operation-space registry is a plain per-session map whose semantics are
+ * asserted by the unit specs.
  */
 const install: () => void = () => {}
 
