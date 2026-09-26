@@ -230,7 +230,7 @@ export async function rollbackWsViolation(
 
 /** Atomic utf8 write (temp sibling + rename), matching the fs.write route. */
 async function writeAtomic(path: string, content: string): Promise<void> {
-  const tmp = `${path}.dshws-restore-${process.pid}`
+  const tmp = `${path}.octopus-restore-${process.pid}`
   try {
     await writeFile(tmp, content, 'utf8')
     await rename(tmp, path)

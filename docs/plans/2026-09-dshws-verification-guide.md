@@ -1,5 +1,10 @@
 # DSHWS 多根工作区：换装与验证指南
 
+> ⚠️ **历史文档（已过时，命令已失效）**：本文写于包名仍为 `dsh-better-sidebar`、侧边栏工作台
+> 尚未移除时，其中步骤**已不可执行**——文中「包名不变 `dsh-better-sidebar`」、`lib/client-<chunk>.js`
+> 等均已不存在。当前的安装与验证步骤见 [README](../../README.md) 与 [AGENTS.md](../../AGENTS.md)，
+> 一条命令的冒烟见 `scripts/smoke.ps1`。本文仅作历史记录保留。
+
 > 分支 `DSHWS_Develop` 的功能已就绪（typecheck / build / 新增单测全绿）。以下步骤把
 > 运行中的 profile 从 npm 版 `dsh-better-sidebar` 换成这份 fork 的本地构建，再逐项验收。
 > 全程可回滚（见 §3）。**改 profile 前请先退出正在运行的 `dsh web`。**

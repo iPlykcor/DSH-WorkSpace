@@ -1,5 +1,5 @@
 /**
- * Host-side `.dsh-workspace` activation: turns a manifest file into an
+ * Host-side `.dsh-octopus` activation: turns a manifest file into an
  * {@link ActiveWorkspace} — resolved, canonical roots with per-root access —
  * plus the containment/classification queries route guards and the model
  * write detector share. Pure policy logic (given a parsed manifest + file
@@ -9,9 +9,9 @@
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, resolve as resolvePath } from 'node:path'
 import {
-  folderAccessOf, longestWsRoot, normalizeWsPath,
-  parseWorkspaceManifest, WS_MANIFEST_MAX_BYTES,
-  type DshWorkspaceAccess, type DshWorkspaceFile,
+  folderAccessOf, hasClaimedManifestExtension, longestWsRoot, normalizeWsPath,
+  parseWorkspaceManifest, WS_MANIFEST_EXTS, WS_MANIFEST_MAX_BYTES,
+  type OctopusAccess, type OctopusFile,
 } from './workspace-schema.ts'
 import { SidebarError } from './wire.ts'
 
@@ -23,7 +23,7 @@ export interface WsRootView {
   realPath: string
   /** Root label shown in the tree header (folder `name` or base name). */
   label: string
-  access: DshWorkspaceAccess
+  access: OctopusAccess
   /** Whether the canonical directory currently exists. */
   exists: boolean
   /** Whether the root came from the manifest (false = implicit session cwd). */
@@ -122,7 +122,7 @@ export function labelOf(path: string): string {
  * at query time (a readOnly subfolder of a readWrite root works).
  */
 export async function buildWorkspacePolicy(
-  manifest: DshWorkspaceFile,
+  manifest: OctopusFile,
   manifestPath: string,
   baseDir: string,
   cwd: string,
@@ -134,7 +134,7 @@ export async function buildWorkspacePolicy(
   const seen = new Set<string>()
   const roots: WsRootView[] = []
 
-  const addRoot = async (lexical: string, specName: string | undefined, access: DshWorkspaceAccess, listed: boolean): Promise<void> => {
+  const addRoot = async (lexical: string, specName: string | undefined, access: OctopusAccess, listed: boolean): Promise<void> => {
     const real = await canonicalize(lexical)
     if (real !== undefined) {
       // Deduplicate by canonical path: later duplicates keep the FIRST.
@@ -194,6 +194,10 @@ export async function buildWorkspaceFromFile(
   ci: boolean,
   log: (message: string) => void = () => {},
 ): Promise<WsPolicyBuild> {
+  if (!hasClaimedManifestExtension(manifestPath)) {
+    // The extension is a convention, not a gate: warn, then load it anyway.
+    log(`manifest extension not in [${WS_MANIFEST_EXTS.join(', ')}]: "${manifestPath}" (loaded anyway)`)
+  }
   const canonicalManifest = await canonicalDir(dirname(manifestPath))
   const baseDir = canonicalManifest ?? dirname(manifestPath)
   const text = await readManifestFile(manifestPath)

@@ -1,5 +1,11 @@
 # DSHWS：多根工作区（`.dsh-workspace`）设计
 
+> ⚠️ **历史文档（已过时）**：本文记录的是包名仍为 `dsh-workspace`、侧边栏工作台尚未移除时的
+> **改造前基线**。现役状态见 [README](../../README.md) 与 [AGENTS.md](../../AGENTS.md)；被移除功能的
+> 完整历史见 git tag `archive/sidebar-workbench`。文中出现的 `DSHWS`、`[dshws]`、`.dsh-workspace`、
+> `ctx.betterSidebar.registerFileViewer`、`/sidebar/api`、`workspaceFence` 等，都是**当时**的名称与
+> 接口，**不代表当前实现**；当前清单主扩展名为 `.dsh-octopus`（`.dsh-workspace` 仅作兼容别名）。
+
 > 分支 `DSHWS_Develop`（fork omdsh-dev/DSH-better-sidebar @ 0.18.0 基线）。
 > 目标：给现有右铡栏加"多根工作区"能力——打开 `*.dsh-workspace` 清单文件后，
 > 资源管理器以清单内各目录为多根显示；每目录带 `readOnly` / `readWrite` 权限，
@@ -135,33 +141,33 @@
 - fs.search 仍以会话 cwd 为根（多根全局搜索留待后续）。
 - 还原为事件窗内的最佳努力（无宿主级快照）。
 
-## 7. ʵʩ��¼��ƫ�ʵ�ֺ�׷�ӣ�
+## 7. 实施记录与偏差（实现后追加）
 
-��ʵ�֣�host/client ȫ��·����֧ DSHWS_Develop����
+已实现（host/client 全链路，分支 DSHWS_Develop）：
 
-- `workspace-schema` JSONC ������Ĭ�� readOnly��`settings.defaultAccess` ��ת���ַ�����д������У�飩��
-- host���Ự�� `WorkspaceRegistry`�������ڴ棬�ǳ־á���host ������ client ���־û������Զ��ؼ����
-  ·���ſأ�fs.read/tree/write/rename/remove���ϴ���file/html ����git д�ࣩ�ڡ��л��������ʱ�������ж�
-  ��дĿ���Ȱ�ȫ���� canonical ���������ǰ׺�þ���RO �� 403 `read-only workspace folder`����
-  �޻������ = ԭ `path-security` �߼���Ķ���`[dshws]` ��־��
-- client��`SidebarState.workspace`��localStorage ��Ự���ֳ־û� + sanitize����attach ʱͬ�� host��
-  ������ʧʱ�� `manifestPath` �Զ��ؼ��FileTree ���ͷ�У����ձ�/ȱʧ��/д�˵����ϷŽ��ã���
-  TreePanel ����������ֻ��ԽȨ�澯 chip����ѯ `workspace.violations`����������ԭ/�򿪣���
-  `.dsh-workspace` viewer���Զ� apply �ɹأ������۽��ļ�������ʾ���������
-- ���/��ԭ��host ɨ��Ự�¼��������� changes-lens �� write/edit ӳ�䣩�����Ƽ�������㣻
-  ��ԭ = �¼��غ����Ŭ�������� edit / ��֪�����ݻ�д����`canRestore=false` ʱָ���˹����顣
-- i18n zh/en/ja ȫ�� + 18 �����������Ǵʵ����ͬ����Ƥ��ֻ�ü��� `--dsw-alias-*`/`--dsw-font-*`/`--ds-*` ���ơ�
+- `workspace-schema` JSONC 解析（默认 readOnly、`settings.defaultAccess` 翻转、字符串简写、逐条校验）。
+- host：会话级 `WorkspaceRegistry`（进程内存，非持久——host 重启后 client 依持久化快照自动重激活）；
+  路由门控（fs.read/tree/write/rename/remove、上传、file/html 读、git 写类）在“有活动工作区”时按策略判定
+  （写目标先按全根集 canonical 化，再由最长前缀裁决；RO 根 403 `read-only workspace folder`）；
+  无活动工作区 = 原 `path-security` 逻辑零改动。`[dshws]` 日志。
+- client：`SidebarState.workspace`（localStorage 随会话布局持久化 + sanitize）；attach 时同步 host、
+  宿主丢失时按 `manifestPath` 自动重激活；FileTree 多根头行（锁徽标/缺失标/写菜单与拖放禁用）、
+  TreePanel 工作区条与只读越权告警 chip（轮询 `workspace.violations`，可逐条还原/打开）、
+  `.dsh-workspace` viewer（自动 apply 可关，激活后聚焦文件窗口显示多根树）。
+- 检测/还原：host 扫描会话事件流（复用 changes-lens 的 write/edit 映射），仅计激活后的落点；
+  还原 = 事件载荷最佳努力（反向 edit / 已知旧内容回写），`canRestore=false` 时指引人工复查。
+- i18n zh/en/ja 全量 + 18 个第三方覆盖词典键集同步；皮肤只用既有 `--dsw-alias-*`/`--dsw-font-*`/`--ds-*` 令牌。
 
-��¼�ڰ���ƫ��/�߽磺
+记录在案的偏差/边界：
 
-1. **���� cwd ��**������ʱδ�г��ĻỰ cwd �Զ�׷��Ϊ `readWrite` �������⼤���������ǰ��ĿĿ¼����
-   Ƕ��ֻ������rw ���ڵ� ro ��Ŀ¼�����ǰ׺��Ч��
-2. **Git �ſ� v1 Ϊ�ֿ⼶**���ֿ�/�������������� RO ��ʱ��ֹ stage/unstage/commit/checkout/discard/revert/
-   cherry-pick����д�ֿ��ڵ�Ƕ�� RO ��Ŀ¼���� git �����ļ����أ�fs ���༭/�ϴ�/������/ɾ���� 403����
-3. **�༭������**���� host 403������ʧ����ʾ����δ����RO �ļ�ֻ������������ʽ���ã�������ǿ����
-4. `fs.search` ���ԻỰ cwd Ϊ�������ȫ������������������
-5. ��ԭΪ�¼��������Ŭ���������������գ�`/sidebar/file` �� `/sidebar/html` ��Ŀ���ڼ���󰴸������տڡ�
-6. i18n��zh/en/ja Ϊ���ֿ��������ģ�������������Ǵʵ䱾���ԡ�zh-Hant�����ƣ�+ en fallback���������
-   ��������ע�� pending native review����
-7. ����˵����Windows ���� `fs-operations` �� 4 �� symlink ���� EPERM���迪����ģʽ/����Ա������Ķ��޹أ�
-   CI��POSIX������븴��ȫ�̡�
+1. **隐含 cwd 根**：激活时未列出的会话 cwd 自动追加为 `readWrite` 根（避免激活动作锁死当前项目目录）；
+   嵌套只读根（rw 根内的 ro 子目录）按最长前缀生效。
+2. **Git 门控 v1 为仓库级**：仓库/工作树本身落在 RO 根时禁止 stage/unstage/commit/checkout/discard/revert/
+   cherry-pick；可写仓库内的嵌套 RO 子目录不做 git 级逐文件拦截（fs 级编辑/上传/重命名/删除仍 403）。
+3. **编辑器存盘**依赖 host 403（保存失败提示）；未做“RO 文件只读工具栏”显式禁用（后续增强）。
+4. `fs.search` 仍以会话 cwd 为根（多根全局搜索留待后续）。
+5. 还原为事件窗内最佳努力，非宿主级快照；`/sidebar/file` 与 `/sidebar/html` 读目标在激活后按根集合收口。
+6. i18n：zh/en/ja 为本仓库完整译文；其余第三方覆盖词典本次以“zh-Hant（近似）+ en fallback”补足键集
+   （见代码注释 pending native review）。
+7. 测试说明：Windows 本地 `fs-operations` 的 4 例 symlink 用例 EPERM（需开发者模式/管理员），与改动无关；
+   CI（POSIX）与隔离复跑全绿。

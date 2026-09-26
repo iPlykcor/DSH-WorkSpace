@@ -17,7 +17,7 @@ import type { SidebarSessionEvent } from '../src/context-types.ts'
 let root: string
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'dshws-policy-'))
+  root = await mkdtemp(join(tmpdir(), 'octopus-policy-'))
   await mkdir(join(root, 'cwd'))
   await mkdir(join(root, 'docs'))
   await mkdir(join(root, 'cwd', 'nested'))
@@ -42,7 +42,7 @@ const MANIFEST = `{
 }`
 
 async function buildFixture(): Promise<ActiveWorkspace> {
-  const manifestPath = join(root, 'cwd', 'test.dsh-workspace')
+  const manifestPath = join(root, 'cwd', 'test.dsh-octopus')
   await writeFile(manifestPath, MANIFEST, 'utf8')
   const cwd = await real('cwd')
   return (await buildWorkspaceFromFile(manifestPath, cwd, false)).workspace
@@ -60,7 +60,7 @@ describe('workspace policy resolution', () => {
   })
 
   it('marks missing listed folders as not existing without dropping others', async () => {
-    const manifestPath = join(root, 'cwd', 't.dsh-workspace')
+    const manifestPath = join(root, 'cwd', 't.dsh-octopus')
     await writeFile(manifestPath, '{ "folders": [{ "path": "./nope" }, { "path": "../docs" }] }', 'utf8')
     const ws = (await buildWorkspaceFromFile(manifestPath, await real('cwd'), false)).workspace
     expect(ws.roots.find(r => r.label === 'nope')?.exists).toBe(false)
@@ -68,10 +68,30 @@ describe('workspace policy resolution', () => {
   })
 
   it('rejects malformed manifests with a clear error', async () => {
-    const manifestPath = join(root, 'cwd', 'bad.dsh-workspace')
+    const manifestPath = join(root, 'cwd', 'bad.dsh-octopus')
     await writeFile(manifestPath, '{ "folders": [] }', 'utf8')
     await expect(buildWorkspaceFromFile(manifestPath, await real('cwd'), false))
       .rejects.toBeInstanceOf(WsManifestError)
+  })
+
+  it('still activates a legacy .dsh-workspace manifest, with no warning', async () => {
+    const manifestPath = join(root, 'cwd', 'legacy.dsh-workspace')
+    await writeFile(manifestPath, '{ "folders": [{ "path": "../docs" }] }', 'utf8')
+    const logs: string[] = []
+    const ws = (await buildWorkspaceFromFile(manifestPath, await real('cwd'), false, m => logs.push(m))).workspace
+    expect(ws.roots.some(r => r.label === 'docs')).toBe(true)
+    expect(logs).toEqual([])
+  })
+
+  it('loads an unclaimed extension but logs a soft warning (never refuses)', async () => {
+    const manifestPath = join(root, 'cwd', 'weird.jsonc')
+    await writeFile(manifestPath, '{ "folders": [{ "path": "../docs" }] }', 'utf8')
+    const logs: string[] = []
+    const ws = (await buildWorkspaceFromFile(manifestPath, await real('cwd'), false, m => logs.push(m))).workspace
+    expect(ws.roots.some(r => r.label === 'docs')).toBe(true)
+    expect(logs).toHaveLength(1)
+    expect(logs[0]).toContain('manifest extension not in')
+    expect(logs[0]).toContain('dsh-octopus, dsh-workspace')
   })
 
   it('longest-prefix wins: a readOnly nested root overrides the implicit rw cwd', async () => {
@@ -272,7 +292,7 @@ describe('read-only write detection + rollback', () => {
     expect(parsed.errors).toEqual([])
     const build = await buildWorkspacePolicy(
       parsed.manifest!,
-      '/ws/t.dsh-workspace',
+      '/ws/t.dsh-octopus',
       '/ws',
       '/cwd',
       false,

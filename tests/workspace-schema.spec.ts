@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   autoActivateOf, DEFAULT_WS_AUTO_ACTIVATE, DEFAULT_WS_FOLDER_ACCESS,
-  folderAccessOf, longestWsRoot, normalizeWsPath, parseWorkspaceManifest,
-  stripJsonc, wsRootContains, type DshWorkspaceFile,
+  folderAccessOf, hasClaimedManifestExtension, longestWsRoot, normalizeWsPath,
+  parseWorkspaceManifest, stripJsonc, WS_MANIFEST_EXTS, wsRootContains,
+  type OctopusFile,
 } from '../src/workspace-schema.ts'
 
 describe('stripJsonc', () => {
@@ -35,7 +36,7 @@ describe('stripJsonc', () => {
 })
 
 describe('parseWorkspaceManifest', () => {
-  const ok = (text: string): DshWorkspaceFile => {
+  const ok = (text: string): OctopusFile => {
     const result = parseWorkspaceManifest(text)
     expect(result.errors).toEqual([])
     expect(result.manifest).toBeDefined()
@@ -126,5 +127,29 @@ describe('ws path matching', () => {
     expect(wsRootContains(normalizeWsPath('/w', false), root)).toBe(true)
     expect(wsRootContains(normalizeWsPath('/w/a.ts', false), root)).toBe(true)
     expect(wsRootContains(normalizeWsPath('/w2', false), root)).toBe(false)
+  })
+})
+
+describe('manifest extension contract', () => {
+  it('claims .dsh-octopus as the primary name and .dsh-workspace as the legacy alias', () => {
+    expect(WS_MANIFEST_EXTS[0]).toBe('dsh-octopus')
+    expect([...WS_MANIFEST_EXTS]).toEqual(['dsh-octopus', 'dsh-workspace'])
+  })
+
+  it('recognizes claimed extensions case-insensitively, from the basename only', () => {
+    expect(hasClaimedManifestExtension('a.dsh-octopus')).toBe(true)
+    expect(hasClaimedManifestExtension('a.dsh-workspace')).toBe(true)
+    expect(hasClaimedManifestExtension('A.DSH-Octopus')).toBe(true)
+    expect(hasClaimedManifestExtension('C:\\repo\\a.dsh-octopus')).toBe(true)
+    expect(hasClaimedManifestExtension('/repo/a.dsh-workspace')).toBe(true)
+  })
+
+  it('does not claim other extensions, extensionless names, or dots in directories', () => {
+    expect(hasClaimedManifestExtension('a.json')).toBe(false)
+    expect(hasClaimedManifestExtension('a.jsonc')).toBe(false)
+    expect(hasClaimedManifestExtension('manifest')).toBe(false)
+    expect(hasClaimedManifestExtension('trailing.')).toBe(false)
+    expect(hasClaimedManifestExtension('C:\\my.repo\\manifest')).toBe(false)
+    expect(hasClaimedManifestExtension('/my.repo/manifest')).toBe(false)
   })
 })

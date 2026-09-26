@@ -1,10 +1,12 @@
 /**
- * Shared `.dsh-workspace` manifest vocabulary: types, JSONC-tolerant parsing
+ * Shared `.dsh-octopus` manifest vocabulary: types, JSONC-tolerant parsing
  * and pure path-matching helpers. Consumed by BOTH halves — the host parses
  * and activates manifests (workspace-policy.ts / index.ts) and the client
  * renders the resolved snapshot and derives read-only rows from it
- * (client/workspace-model.ts). Kept free of Node.js and schemastery so the
- * browser bundle can inline it unchanged.
+ * (client/multiroot-tab.tsx / client/api.ts). Kept free of Node.js and
+ * schemastery so the browser bundle can inline it unchanged. The manifest
+ * extension is a convention, not a gate — see `WS_MANIFEST_EXTS` and
+ * `hasClaimedManifestExtension`.
  *
  * Format (VSCode-code-workspace-like, JSONC tolerated):
  *
@@ -31,34 +33,34 @@
  */
 
 /** Per-folder permission: writable, or read-only. */
-export type DshWorkspaceAccess = 'readWrite' | 'readOnly'
+export type OctopusAccess = 'readWrite' | 'readOnly'
 
-export interface DshWorkspaceSettings {
+export interface OctopusSettings {
   /** Default `access` of folders without their own; defaults to readOnly. */
-  defaultAccess?: DshWorkspaceAccess
+  defaultAccess?: OctopusAccess
   /** Open the manifest file => apply it to the sidebar (default true). */
   autoActivate?: boolean
 }
 
 /** One `folders[]` entry: the object form (string shorthand expands to this). */
-export interface DshWorkspaceFolderSpec {
+export interface OctopusFolderSpec {
   /** Absolute path, or a path relative to the manifest file's directory. */
   path: string
   /** Optional display label overriding the folder's base name. */
   name?: string
   /** Per-folder permission; absent => `defaultAccess` => readOnly. */
-  access?: DshWorkspaceAccess
+  access?: OctopusAccess
 }
 
 /** The parsed manifest document (validation-passed shape). */
-export interface DshWorkspaceFile {
+export interface OctopusFile {
   /** Format version; 1 is the only accepted value (others warn and continue). */
   version?: number
   /** Optional workspace title; defaults to the manifest file's base name. */
   name?: string
   /** The multi-root folder list (order = display order). */
-  folders: DshWorkspaceFolderSpec[]
-  settings?: DshWorkspaceSettings
+  folders: OctopusFolderSpec[]
+  settings?: OctopusSettings
 }
 
 /** One parse/validation finding (entry-level reference, e.g. `folders[2]`). */
@@ -69,7 +71,7 @@ export interface WsManifestIssue {
 /** Strict vs. soft outcome of a parse attempt. */
 export interface WsManifestParseResult {
   /** Present only when the document parsed with no blocking errors. */
-  manifest?: DshWorkspaceFile
+  manifest?: OctopusFile
   /** Blocking errors: the document must not be activated. */
   errors: WsManifestIssue[]
   /** Soft warnings: applied with the stated fallbacks (never blocking). */
@@ -77,7 +79,7 @@ export interface WsManifestParseResult {
 }
 
 /** The security default: unlabeled folders are read-only. */
-export const DEFAULT_WS_FOLDER_ACCESS: DshWorkspaceAccess = 'readOnly'
+export const DEFAULT_WS_FOLDER_ACCESS: OctopusAccess = 'readOnly'
 
 /** Open-a-manifest auto-applies by default. */
 export const DEFAULT_WS_AUTO_ACTIVATE = true
@@ -95,10 +97,23 @@ export const WS_MANIFEST_MAX_BYTES = 256 * 1024
  */
 export const WS_MANIFEST_EXTS = ['dsh-octopus', 'dsh-workspace'] as const
 
-const ACCESS_VALUES: readonly DshWorkspaceAccess[] = ['readWrite', 'readOnly']
+/**
+ * Whether `path` carries one of the extensions {@link WS_MANIFEST_EXTS}
+ * claims, matched case-insensitively against the BASENAME only (a dot inside
+ * a directory name is not an extension). Kept free of `node:path` so the
+ * browser bundle can inline it unchanged.
+ */
+export function hasClaimedManifestExtension(path: string): boolean {
+  const base = path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1)
+  const dot = base.lastIndexOf('.')
+  if (dot < 0) return false
+  return (WS_MANIFEST_EXTS as readonly string[]).includes(base.slice(dot + 1).toLowerCase())
+}
+
+const ACCESS_VALUES: readonly OctopusAccess[] = ['readWrite', 'readOnly']
 
 /** Normalize an `access` value; undefined/unknown fall back to the default. */
-export function isWsAccess(value: unknown): value is DshWorkspaceAccess {
+export function isWsAccess(value: unknown): value is OctopusAccess {
   return typeof value === 'string' && (ACCESS_VALUES as readonly string[]).includes(value)
 }
 
@@ -213,7 +228,8 @@ function plainRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Parse + validate one `.dsh-workspace` document (JSONC tolerated).
+ * Parse + validate one `.dsh-octopus` document (JSONC tolerated; the legacy
+ * `.dsh-workspace` extension is accepted on input).
  * Blocking errors (malformed JSON, a non-object root, a missing/non-array
  * `folders`, an entry without a usable `path`) leave `manifest` undefined;
  * soft warnings (unknown version, non-string name, unknown access, wrong
@@ -237,11 +253,11 @@ export function parseWorkspaceManifest(text: string): WsManifestParseResult {
   if (!Array.isArray(foldersRaw) || foldersRaw.length === 0) {
     errors.push({ message: '"folders" must be a non-empty array' })
   }
-  const folders: DshWorkspaceFolderSpec[] = []
+  const folders: OctopusFolderSpec[] = []
   if (Array.isArray(foldersRaw)) {
     foldersRaw.forEach((entry, index) => {
       const at = `folders[${index}]`
-      let spec: DshWorkspaceFolderSpec
+      let spec: OctopusFolderSpec
       if (typeof entry === 'string') {
         if (entry.trim() === '') {
           errors.push({ message: `${at}: a folder path must not be empty` })
@@ -286,7 +302,7 @@ export function parseWorkspaceManifest(text: string): WsManifestParseResult {
   if (root.name !== undefined && typeof root.name !== 'string') {
     warnings.push({ message: '"name" must be a string; ignoring it' })
   }
-  let settings: DshWorkspaceSettings | undefined
+  let settings: OctopusSettings | undefined
   if (root.settings !== undefined) {
     if (!plainRecord(root.settings)) {
       warnings.push({ message: '"settings" must be an object; ignoring it' })
@@ -305,7 +321,7 @@ export function parseWorkspaceManifest(text: string): WsManifestParseResult {
       }
     }
   }
-  const manifest: DshWorkspaceFile = {
+  const manifest: OctopusFile = {
     ...(typeof root.version === 'number' ? { version: root.version } : {}),
     ...(typeof root.name === 'string' && root.name !== '' ? { name: root.name } : {}),
     folders,
@@ -316,14 +332,14 @@ export function parseWorkspaceManifest(text: string): WsManifestParseResult {
 
 /** The `access` a folder resolves to (folder > settings.defaultAccess > readOnly). */
 export function folderAccessOf(
-  folder: DshWorkspaceFolderSpec,
-  settings: DshWorkspaceSettings | undefined,
-): DshWorkspaceAccess {
+  folder: OctopusFolderSpec,
+  settings: OctopusSettings | undefined,
+): OctopusAccess {
   return folder.access ?? settings?.defaultAccess ?? DEFAULT_WS_FOLDER_ACCESS
 }
 
 /** Whether opening a manifest file should auto-apply it (settings default true). */
-export function autoActivateOf(settings: DshWorkspaceSettings | undefined): boolean {
+export function autoActivateOf(settings: OctopusSettings | undefined): boolean {
   return settings?.autoActivate ?? DEFAULT_WS_AUTO_ACTIVATE
 }
 

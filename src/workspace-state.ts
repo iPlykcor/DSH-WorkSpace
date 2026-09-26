@@ -1,6 +1,6 @@
 /**
  * Per-session active-workspace registry (host half). One {@link ActiveWorkspace}
- * per session id, built by reading + validating the `.dsh-workspace` manifest
+ * per session id, built by reading + validating the `.dsh-octopus` manifest
  * the client activated. Route guards ask `get(sessionId)` and fall back to
  * the legacy single-cwd behavior when undefined. Not durable by design: after
  * a host restart the client re-activates from its persisted snapshot
@@ -12,13 +12,13 @@ import { resolveSessionPath } from './session-path.ts'
 import {
   buildWorkspaceFromFile, type ActiveWorkspace, type WsRootView,
 } from './workspace-policy.ts'
-import type { DshWorkspaceAccess } from './workspace-schema.ts'
+import type { OctopusAccess } from './workspace-schema.ts'
 
 /** One snapshot root the client renders (policy facts, no host internals). */
 export interface WsRootSnapshot {
   path: string
   label: string
-  access: DshWorkspaceAccess
+  access: OctopusAccess
   exists: boolean
   listed: boolean
 }
