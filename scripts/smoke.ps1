@@ -191,6 +191,19 @@ try {
   Assert-Status (Invoke-OctopusApi $base 'workspace.state' $stateBody) 200 'workspace.state with no active space'
   Assert-Status (Invoke-OctopusApi $base 'fs.tree' (Body @{ sessionId = $session; path = $fx })) 403 'fs.tree is fenced while no space is active'
 
+  # Discovery is the deliberate exception to that fence: it runs precisely while
+  # nothing is active, because it is what makes applying a manifest possible
+  # without a hand-typed path.
+  $discovery = Invoke-OctopusApi $base 'workspace.discover' (Body @{ sessionId = $session; cwd = $fx })
+  Assert-Status $discovery 200 'workspace.discover before activation (deliberately not fenced)'
+  if ($discovery.status -eq 200) {
+    if ($discovery.body -match 'smoke\.dsh-octopus') { Write-Pass 'discovery finds the fixture manifest in the session cwd' }
+    else { Write-Fail "discovery missed the fixture manifest: $($discovery.body)" }
+    if ($discovery.body -match '"autoActivate":true') { Write-Pass 'discovery reports the default autoActivate' }
+    else { Write-Fail "discovery lost autoActivate: $($discovery.body)" }
+  }
+  Assert-Status (Invoke-OctopusApi $base 'workspace.discover' (Body @{ sessionId = $session; cwd = (Join-Path $fx 'no-such-folder') })) 200 'discovery of a missing folder -> 200 (empty, not an error)'
+
   Write-Step 'route probes: operation-space lifecycle'
   $activated = Invoke-OctopusApi $base 'workspace.activate' (Body @{ sessionId = $session; path = $manifest; cwd = $fx })
   Assert-Status $activated 200 'workspace.activate'

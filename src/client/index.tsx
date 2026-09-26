@@ -14,8 +14,21 @@ import type { Context } from '../context-types.ts'
 import { registerMultiRootTab } from './multiroot-tab.tsx'
 import { LOCALE_NS, attachLocale, en, zh } from './locales.ts'
 
-/** Services required before mounting (provided by the client runtime). */
-export const inject = ['slots', 'sessions', 'locale']
+/**
+ * Services required before mounting (provided by the client runtime).
+ *
+ * `sidebarRightTabs` belongs HERE, not only in the optional probe inside
+ * `registerMultiRootTab`: cordis activates a fiber as soon as its declared deps
+ * exist, and the built-in right Sidebar's own inject list is longer (`layout`,
+ * `resources`, `uiSession`, `shortcuts` are in it), so this plugin can reach
+ * `apply` FIRST and find the service missing. That failure is silent — the
+ * registration returns a no-op and never retries — which is exactly how the tab
+ * ends up missing with no error anywhere. Every built-in DSH plugin that uses
+ * this service declares it as a dependency for the same reason. A host older
+ * than 0.1.5 simply leaves the fiber inactive instead of crashing, and
+ * `dsh.plugin.json` already states `engines.dsh: >=0.1.5`.
+ */
+export const inject = ['slots', 'sessions', 'locale', 'sidebarRightTabs']
 
 /**
  * Client plugin body.

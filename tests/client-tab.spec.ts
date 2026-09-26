@@ -17,6 +17,7 @@
 import { readFile } from 'node:fs/promises'
 import { afterEach, describe, expect, it } from 'vitest'
 import { attachLocale, en, LOCALE_NS, t, zh } from '../src/client/locales.ts'
+import { inject } from '../src/client/index.tsx'
 import { registerMultiRootTab } from '../src/client/multiroot-tab.tsx'
 import type { Context } from '../src/context-types.ts'
 
@@ -119,6 +120,21 @@ describe('operation-space tab registration', () => {
     pinLocale('en')
     expect(title()).toBe('Operation Space')
     expect(guide()).toBe('Operation Space')
+  })
+
+  it('declares sidebarRightTabs as a dependency instead of only probing for it', () => {
+    // This is not bookkeeping. The service is provided by the built-in right
+    // Sidebar, whose own inject list is LONGER than ours (layout / resources /
+    // uiSession / shortcuts), so cordis legitimately activates this plugin
+    // first. A probe then finds nothing and `registerMultiRootTab` returns a
+    // no-op that never retries: the tab is simply absent, with no error in the
+    // console or the host log. Declaring the dependency is what orders the two,
+    // and every built-in DSH plugin that uses the service does the same.
+    expect(inject).toContain('sidebarRightTabs')
+    // These must stay declared too: dropping one breaks the tab body.
+    expect(inject).toContain('slots')
+    expect(inject).toContain('sessions')
+    expect(inject).toContain('locale')
   })
 })
 

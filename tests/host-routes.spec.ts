@@ -284,6 +284,76 @@ describe('host route dispatch and envelopes', () => {
   })
 })
 
+describe('host route manifest discovery', () => {
+  it('finds the manifest in the session cwd while NOTHING is active', async () => {
+    const harness = mount()
+    // Nothing is activated yet, so browsing is fenced on purpose — discovery
+    // must not share that fence, because it is what makes activation possible.
+    const fenced = await send(harness.route, {
+      method: 'fs.tree',
+      body: JSON.stringify({ sessionId: SESSION, path: cwd }),
+    })
+    expect(fenced.status).toBe(403)
+
+    const found = value(await send(harness.route, {
+      method: 'workspace.discover',
+      body: JSON.stringify({ sessionId: SESSION }),
+    }))
+    expect(found.cwd).toBe(cwd)
+    const candidates = found.candidates as Array<{ fileName: string; name: string; autoActivate: boolean; path: string }>
+    expect(candidates.map(candidate => candidate.fileName)).toEqual(['ops.dsh-octopus'])
+    expect(candidates[0]!.path).toBe(manifestPath)
+    expect(candidates[0]!.name).toBe('routes')
+    // No `settings.autoActivate` in the fixture => the documented default.
+    expect(candidates[0]!.autoActivate).toBe(true)
+  })
+
+  it('surfaces an opt-out and an unparseable sibling instead of guessing', async () => {
+    await writeFile(
+      join(cwd, 'manual.dsh-octopus'),
+      JSON.stringify({ folders: ['.'], settings: { autoActivate: false } }),
+      'utf8',
+    )
+    await writeFile(join(cwd, 'broken.dsh-octopus'), '{ not json', 'utf8')
+    const found = value(await send(mount().route, {
+      method: 'workspace.discover',
+      body: JSON.stringify({ sessionId: SESSION }),
+    }))
+    const candidates = found.candidates as Array<{ fileName: string; autoActivate: boolean; error?: string }>
+    expect(candidates.map(candidate => candidate.fileName))
+      .toEqual(['broken.dsh-octopus', 'manual.dsh-octopus', 'ops.dsh-octopus'])
+    // The author's opt-out is reported, never overridden.
+    expect(candidates.find(candidate => candidate.fileName === 'manual.dsh-octopus')!.autoActivate).toBe(false)
+    // A file that cannot be parsed is still reported, with its reason.
+    expect(candidates.find(candidate => candidate.fileName === 'broken.dsh-octopus')!.error).toBeTruthy()
+  })
+
+  it('uses the payload cwd for a cold session (the hydrating-client path)', async () => {
+    const found = value(await send(mount().route, {
+      method: 'workspace.discover',
+      body: JSON.stringify({ sessionId: 'sess-cold', cwd }),
+    }))
+    expect((found.candidates as unknown[]).length).toBe(1)
+  })
+
+  it('answers an empty discovery for a missing folder rather than failing', async () => {
+    const reply = await send(mount().route, {
+      method: 'workspace.discover',
+      body: JSON.stringify({ sessionId: 'sess-cold', cwd: join(root, 'no-such-folder') }),
+    })
+    expect(value(reply).candidates).toEqual([])
+  })
+
+  it('passes the same browser-trust fence as every other method', async () => {
+    const reply = await send(mount().route, {
+      method: 'workspace.discover',
+      body: JSON.stringify({ sessionId: SESSION }),
+      headers: { host: '127.0.0.1:3080', 'sec-fetch-site': 'cross-site' },
+    })
+    expect(reply.status).toBe(403)
+  })
+})
+
 describe('host route operation-space lifecycle', () => {
   it('reports no workspace before activation', async () => {
     const reply = await send(mount().route, { body: JSON.stringify({ sessionId: SESSION }) })

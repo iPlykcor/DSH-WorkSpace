@@ -81,6 +81,24 @@ export interface WorkspaceViolation {
 }
 
 /**
+ * One manifest file found in the session cwd (workspace.discover). Discovery
+ * runs BEFORE anything is active, so the host parses each candidate to expose
+ * the author's `autoActivate` opt-out and any parse error.
+ */
+export interface ManifestCandidate {
+  /** Absolute path of the candidate manifest. */
+  path: string
+  /** Its base name on disk (always shown). */
+  fileName: string
+  /** Declared title, or the base name when unnamed/unparseable. */
+  name: string
+  /** The manifest's `settings.autoActivate` (default true). */
+  autoActivate: boolean
+  /** Set when the file cannot be used; such a candidate never auto-applies. */
+  error?: string
+}
+
+/**
  * Parse one JSON response envelope into its value. A non-ok status, an
  * unparseable body, or any shape other than `{ok: true, value}` surfaces as
  * {@link SidebarApiError} carrying the wire code (falling back to the HTTP
@@ -145,6 +163,13 @@ export const api = {
   /** The session's active operation space (null = none activated). */
   workspaceState: (scope: SessionScope, signal?: AbortSignal) =>
     call<{ workspace: WorkspaceSnapshot | null }>('workspace.state', scopePayload(scope, {}), signal),
+  /**
+   * Manifests sitting in the session cwd. This is the call that runs while
+   * nothing is active (`workspace.state` returned null), so unlike `fsTree` it
+   * is not fenced behind an active space.
+   */
+  workspaceDiscover: (scope: SessionScope, signal?: AbortSignal) =>
+    call<{ cwd: string; candidates: ManifestCandidate[] }>('workspace.discover', scopePayload(scope, {}), signal),
   /** Activate a manifest file (`.dsh-octopus`, or the `.dsh-workspace` alias) for the session. */
   workspaceActivate: (scope: SessionScope, path: string) =>
     call<{ workspace: WorkspaceSnapshot; warnings: string[] }>('workspace.activate', scopePayload(scope, { path })),

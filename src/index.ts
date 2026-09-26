@@ -31,6 +31,7 @@ import { readJsonBody, requireString, SidebarError, writeError, writeJson, write
 import { ensureWsReadTarget } from './workspace-guards.ts'
 import { WsManifestError, wsReadBases } from './workspace-policy.ts'
 import { rollbackWsViolation, scanWsViolations } from './workspace-detector.ts'
+import { discoverManifests } from './workspace-discovery.ts'
 import { hostCaseInsensitive, snapshotOf, WorkspaceRegistry } from './workspace-state.ts'
 import { WORKSPACE_SKILL } from './workspace-skill.ts'
 
@@ -177,6 +178,14 @@ function buildApi(ctx: Context, wsReg: WorkspaceRegistry): Record<string, ApiMet
       const { sessionId } = await cwdOf(payload)
       const active = wsReg.get(sessionId)
       return { workspace: active === undefined ? null : snapshotOf(active) }
+    },
+    // Discovery answers the question `workspace.state` just answered with
+    // "nothing", so it must NOT go through `readTargetOf` (which 403s while no
+    // space is active). It reads exactly one directory — the session cwd — and
+    // returns only claimed manifest files, never a general listing.
+    'workspace.discover': async (payload) => {
+      const { cwd } = await cwdOf(payload)
+      return { cwd, candidates: await discoverManifests(cwd) }
     },
     'workspace.activate': async (payload) => {
       const { sessionId, cwd } = await cwdOf(payload)

@@ -31,9 +31,13 @@ import {
   PermissionIconFullAccessRegular,
   PermissionIconReadOnlyRegular,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Context, SidebarRightFace, SidebarRightTabsFace } from '../context-types.ts'
-import { api, type FsEntry, type SessionScope, type WorkspaceSnapshot, type WorkspaceViolation } from './api.ts'
+import {
+  api,
+  type FsEntry, type ManifestCandidate, type SessionScope, type WorkspaceSnapshot, type WorkspaceViolation,
+} from './api.ts'
+import { decideDiscovery } from './discovery-decision.ts'
 import { sessionFileAddress } from './file-address.ts'
 import { t } from './locales.ts'
 
@@ -113,10 +117,12 @@ function forgetManifest(sessionId: string): void {
  * @returns a disposer unregistering the type, body and title.
  */
 export function registerMultiRootTab(ctx: Context): () => void {
-  // Non-reactive optional-service probe: `ctx.get` returns undefined when the
-  // service is absent, where direct property access would throw (cordis guards
-  // unavailable services). A host without the 0.1.5 extension points simply
-  // gets no tab instead of a mount failure.
+  // Belt-and-braces probe on top of the `sidebarRightTabs` dependency declared
+  // by the client entry. By the time apply runs the service exists, so this
+  // guard only matters for a host that lacks the 0.1.5 extension points
+  // entirely (where `ctx.get` returns undefined but direct property access
+  // would throw). It must never be the ONLY gate: a probe that happens to run
+  // before the providing plugin activates registers nothing and never retries.
   const tabs = ctx.get('sidebarRightTabs') as SidebarRightTabsFace | undefined
   if (tabs === undefined) return () => {}
 
@@ -174,46 +180,20 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
     const [manifestInput, setManifestInput] = useState('')
     const [violations, setViolations] = useState<readonly WorkspaceViolation[]>([])
     const [violationsOpen, setViolationsOpen] = useState(false)
+    /** Manifests found in the session cwd; undefined = not scanned yet. */
+    const [candidates, setCandidates] = useState<readonly ManifestCandidate[] | undefined>(undefined)
+    const [scanning, setScanning] = useState(false)
 
     const scope: SessionScope = {
       sessionId: sessionId ?? '',
       ...(cwd !== undefined && cwd !== '' ? { cwd } : {}),
     }
 
-    // Load the session's active operation space. When the host has none (a host
-    // restart emptied its in-memory registry) re-activate from this plugin's own
-    // mirror — the host wins whenever it has state, so this never overrides it.
-    useEffect(() => {
-      if (sessionId === undefined || sessionId === '') { setWorkspace(null); return }
-      let cancelled = false
-      const sessionScope: SessionScope = { sessionId, ...(cwd !== undefined && cwd !== '' ? { cwd } : {}) }
-      setWorkspace(undefined)
-      setError(null)
-      setNotice(null)
-      setExpanded(new Set())
-      setChildren(new Map())
-      setViolations([])
-      setViolationsOpen(false)
-      void api.workspaceState(sessionScope)
-        .then(async (result) => {
-          if (cancelled) return
-          if (result.workspace !== null) { setWorkspace(result.workspace); return }
-          const manifestPath = persistedManifestPath(sessionId)
-          if (manifestPath === undefined) { setWorkspace(null); return }
-          try {
-            const activated = await api.workspaceActivate(sessionScope, manifestPath)
-            if (!cancelled) setWorkspace(activated.workspace)
-          } catch {
-            if (!cancelled) { setWorkspace(null); forgetManifest(sessionId) }
-          }
-        })
-        .catch((failure: unknown) => {
-          if (cancelled) return
-          setWorkspace(null)
-          setError(messageOf(failure))
-        })
-      return () => { cancelled = true }
-    }, [sessionId, cwd])
+    // Latest session id, readable from an async callback that outlived its own
+    // render: a discovery answer must never apply one session's manifest to a
+    // different session after a switch.
+    const sessionIdRef = useRef(sessionId)
+    useEffect(() => { sessionIdRef.current = sessionId }, [sessionId])
 
     // Poll the read-only write report while a space is active. The host scans
     // the session event log, so nothing here depends on who performed the write.
@@ -235,12 +215,22 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
       return () => { cancelled = true; clearInterval(timer) }
     }, [sessionId, cwd, activeManifest])
 
-    /** Activate (or re-activate) one manifest file and reset the tree. */
-    const applyManifest = (path: string): void => {
+    /**
+     * Activate (or re-activate) one manifest file and reset the tree.
+     * `useCallback`, not a plain function, because the load effect below applies
+     * a DISCOVERED manifest through it — the dependency array is what keeps
+     * react-hooks/exhaustive-deps satisfied without a blanket disable comment.
+     * The scope is rebuilt from `sessionId`/`cwd` rather than closing over the
+     * render's `scope` object: that object is new on every render, so depending
+     * on it would re-create this callback each render and re-run that effect
+     * forever.
+     */
+    const applyManifest = useCallback((path: string): void => {
       if (sessionId === undefined || sessionId === '') return
+      const target: SessionScope = { sessionId, ...(cwd !== undefined && cwd !== '' ? { cwd } : {}) }
       setError(null)
       setNotice(null)
-      void api.workspaceActivate(scope, path)
+      void api.workspaceActivate(target, path)
         .then((result) => {
           setWorkspace(result.workspace)
           setExpanded(new Set())
@@ -249,7 +239,94 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
           setNotice(t('workspaceApplied'))
         })
         .catch((failure: unknown) => { setError(t('workspaceApplyFailed', { message: messageOf(failure) })) })
-    }
+    }, [sessionId, cwd])
+
+    /**
+     * Scan the session cwd (one level) for manifests and carry out
+     * {@link decideDiscovery}'s verdict. The rule itself — which single manifest
+     * may be applied without asking — lives in ./discovery-decision.ts, where it
+     * is tested; this function only wires it to the view.
+     * @param sessionScope - the scope this scan belongs to.
+     */
+    const scan = useCallback((sessionScope: SessionScope): void => {
+      const isCurrent = (): boolean => sessionIdRef.current === sessionScope.sessionId
+      setScanning(true)
+      void api.workspaceDiscover(sessionScope)
+        .then((result) => {
+          // A scan outlives a session switch; a stale answer must not apply one
+          // session's manifest to another.
+          if (!isCurrent()) return
+          setScanning(false)
+          setCandidates(result.candidates)
+          const decision = decideDiscovery(result.candidates)
+          if (decision.kind === 'apply') { applyManifest(decision.path); return }
+          if (decision.autoOff) setNotice(t('scanAutoOff'))
+          setWorkspace(null)
+        })
+        .catch((failure: unknown) => {
+          if (!isCurrent()) return
+          setScanning(false)
+          setCandidates([])
+          setWorkspace(null)
+          setError(messageOf(failure))
+        })
+    }, [applyManifest, sessionIdRef])
+
+    // Load the session's active operation space. When the host has none (a host
+    // restart emptied its in-memory registry) re-activate from this plugin's own
+    // mirror — the host wins whenever it has state, so this never overrides it.
+    // Only when there is neither host state nor a usable mirror does the tab
+    // discover a manifest in the session cwd, which is what makes simply opening
+    // this tab enough to apply one.
+    // Declared AFTER `scan` on purpose: the IIFE below runs immediately, so a
+    // later declaration would be a temporal-dead-zone read (TS2448), not a
+    // harmless forward reference.
+    useEffect(() => {
+      if (sessionId === undefined || sessionId === '') { setWorkspace(null); return }
+      let cancelled = false
+      const sessionScope: SessionScope = { sessionId, ...(cwd !== undefined && cwd !== '' ? { cwd } : {}) }
+      /** Whether this run is still the live one (its session and cwd unchanged). */
+      const live = (): boolean => !cancelled
+      setWorkspace(undefined)
+      setError(null)
+      setNotice(null)
+      setCandidates(undefined)
+      setScanning(false)
+      setExpanded(new Set())
+      setChildren(new Map())
+      setViolations([])
+      setViolationsOpen(false)
+      void (async () => {
+        try {
+          const result = await api.workspaceState(sessionScope)
+          if (!live()) return
+          if (result.workspace !== null) { setWorkspace(result.workspace); return }
+          const manifestPath = persistedManifestPath(sessionId)
+          if (manifestPath !== undefined) {
+            try {
+              const activated = await api.workspaceActivate(sessionScope, manifestPath)
+              if (!live()) return
+              setWorkspace(activated.workspace)
+              return
+            } catch {
+              // A mirror whose file no longer applies is stale: forget it and
+              // fall through to discovery rather than surfacing an error.
+              if (!live()) return
+              forgetManifest(sessionId)
+            }
+          }
+          if (!live()) return
+          scan(sessionScope)
+        } catch (failure: unknown) {
+          if (!live()) return
+          setWorkspace(null)
+          setError(messageOf(failure))
+        }
+      })()
+      // `scan` is a `useCallback` whose identity changes only with sessionId/cwd,
+      // so listing it here cannot re-run this effect on its own.
+      return () => { cancelled = true }
+    }, [sessionId, cwd, scan])
 
     /** Leave the operation space (back to DSH's ordinary single root). */
     const deactivate = (): void => {
@@ -363,6 +440,49 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
         <div style={{ padding: 12, fontSize: 13, color: 'var(--dsw-alias-label-primary)' }}>
           <div style={{ fontWeight: 600, marginBottom: 6 }}>{t('operationSpace')}</div>
           <div style={{ opacity: 0.75, marginBottom: 10, lineHeight: 1.5 }}>{t('noWorkspace')}</div>
+          {/* Auto-detection: opening this tab already scanned the session cwd,
+              so a manifest sitting there needs no hand-typed path. The input
+              below stays as the fallback for one that lives elsewhere. */}
+          {scanning && <div style={{ opacity: 0.7, marginBottom: 10 }}>{t('scanning')}</div>}
+          {!scanning && candidates !== undefined && (candidates.length === 0
+            ? <div style={{ opacity: 0.6, marginBottom: 10 }}>{t('scanNone')}</div>
+            : (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ opacity: 0.75, marginBottom: 6 }}>
+                  {candidates.length === 1 ? t('scanOne') : t('scanPick', { n: candidates.length })}
+                </div>
+                {candidates.map((candidate) => (
+                  <button
+                    key={candidate.path}
+                    type="button"
+                    title={candidate.path}
+                    onClick={() => { applyManifest(candidate.path) }}
+                    style={{
+                      ...rowBase,
+                      width: '100%', border: 0, background: 'transparent', textAlign: 'left',
+                      cursor: candidate.error === undefined ? 'pointer' : 'default',
+                      paddingLeft: 2, opacity: candidate.error === undefined ? 1 : 0.6,
+                    }}
+                  >
+                    <IconFolderOpenMedium size={14} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {candidate.name}
+                    </span>
+                    {candidate.name !== candidate.fileName && (
+                      <span style={{ fontSize: 11, opacity: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {candidate.fileName}
+                      </span>
+                    )}
+                    {candidate.error !== undefined && (
+                      <span style={{ marginLeft: 'auto', fontSize: 11, opacity: 0.8 }} title={candidate.error}>
+                        {t('candidateBroken')}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            ))}
+          {notice !== null && <div style={{ marginBottom: 10, opacity: 0.8 }}>{notice}</div>}
           <div style={{ display: 'flex', gap: 6 }}>
             <input
               value={manifestInput}
@@ -377,6 +497,15 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
             />
             <button type="button" onClick={() => { applyManifest(manifestInput) }} style={{ fontSize: 12, padding: '4px 10px', cursor: 'pointer' }}>
               {t('workspaceApply')}
+            </button>
+            <button
+              type="button"
+              title={t('scanAgain')}
+              aria-label={t('scanAgain')}
+              onClick={() => { scan(scope) }}
+              style={{ display: 'flex', alignItems: 'center', fontSize: 12, padding: '4px 8px', cursor: 'pointer' }}
+            >
+              <IconRefreshOutlineMedium size={14} />
             </button>
           </div>
           {error !== null && <div style={{ marginTop: 8, opacity: 0.85 }}>{error}</div>}

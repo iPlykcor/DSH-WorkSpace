@@ -24,11 +24,22 @@
 
 ## 安装
 
-本包尚未发布到 npm。当前从**本地 tarball** 安装（在仓库根执行）：
+本包尚未发布到 npm。**一键部署**（在仓库根执行，Windows）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1
+```
+
+它跑四道门禁 → 构建打包 → 把 profile 的 `package.json` 备份到 `octopus-deploy-backups\<时间戳>\` → **先 `remove` 再 `add`**（版本号与 tarball 路径都不变时，直接 `add` 对 pnpm 是空操作，不会重新解包）→ 校验依赖与插件清单，并把已安装的 `lib\index.js` / `lib\client.js` 与本次构建逐个做 SHA256 比对 → 打印重启与回滚命令。它**绝不自动重启**你正在用的 `dsh web`——安装只在下次启动生效，而杀掉宿主会丢掉你手头的事。
+
+常用开关：`-SkipTests`（跳过门禁）、`-SkipBuild`（复用现有 `lib/`）、`-DryRun`（只打印不落盘）、`-Yes`（免确认）、`-Uninstall`（卸载并复核依赖已移除）、`-DshHome <目录>`（指向别处；用它做全流程演练不会碰真实 profile）。
+
+手工等价步骤（任意平台）：
 
 ```bash
 pnpm build
 pnpm pack
+dsh plugin --profile web remove dsh-octopus-operation-space   # 版本号不变时必须先移除，否则 add 对 pnpm 是空操作
 dsh plugin --profile web add file:D:/绝对路径/dsh-octopus-operation-space-0.1.0.tgz
 ```
 
@@ -45,9 +56,10 @@ dsh plugin --profile web remove dsh-octopus-operation-space
 ## 使用
 
 1. 打开右侧栏的页签菜单，选择**章鱼作业区**。
-2. 在面板里填入清单文件的绝对路径，回车或点「应用此作业区」。
-3. 面板列出各根目录；点目录展开，点文件即在 DSH 的文档预览页签中打开。
-4. 标题栏的三个动作：**⟳ 重新读取清单**（清单是唯一事实来源）、**越权计数**（点开看记录与还原）、**✕ 退出作业区**。
+2. **自动检测**：页签一打开就扫描当前会话 cwd（**只扫一层**）里的 `*.dsh-octopus`。恰好一个、且未声明 `autoActivate: false` → 直接应用；只有一个但声明了 `autoActivate: false` → 列出来等你点；**多个 → 全部列出让你选**（不猜；解析失败的也会列出并标注「无法解析」，鼠标悬停可见原因）。这样清单放在 cwd 就**不需要手输路径**。
+3. 清单不在 cwd 时，在面板里填入它的绝对路径，回车或点「应用此作业区」；面板的 ⟳ 按钮可随时重新扫描。
+4. 面板列出各根目录；点目录展开，点文件即在 DSH 的文档预览页签中打开。
+5. 标题栏的三个动作：**⟳ 重新读取清单**（清单是唯一事实来源）、**越权计数**（点开看记录与还原）、**✕ 退出作业区**。
 
 ## 清单格式
 
@@ -64,7 +76,7 @@ JSONC：允许注释与尾逗号。相对路径以**清单文件所在目录**�
   ],
   "settings": {
     "defaultAccess": "readOnly",    // readWrite | readOnly，默认 readOnly
-    "autoActivate": true            // 打开清单即应用，默认 true
+    "autoActivate": true            // 在会话 cwd 被发现即自动应用，默认 true
   }
 }
 ```
@@ -78,7 +90,7 @@ JSONC：允许注释与尾逗号。相对路径以**清单文件所在目录**�
 | `folders[].name` | 可选，覆盖显示名 |
 | `folders[].access` | `readWrite` 或 `readOnly` |
 | `settings.defaultAccess` | 未标注 `access` 的目录取此值，默认 `readOnly` |
-| `settings.autoActivate` | 打开清单文件即应用，默认 `true` |
+| `settings.autoActivate` | 设为 `false` 时，本清单即使被自动检测到也**不自动应用**，需你手动点选（默认 `true`） |
 
 **会话目录是隐含的可写根**：除非清单显式列出了会话 cwd（此时以清单为准），否则它会作为隐含的 `readWrite` 根加入，避免把当前项目锁成只读。
 
@@ -109,7 +121,7 @@ pnpm build       # tsc 声明 + tsdown 产物
 pnpm lint
 ```
 
-`lib/` 产物约 270 KB（宿主 ESM + 两份客户端 CJS 闭包 + 类型声明）。
+`lib/` 产物约 300 KB（宿主 ESM + 两份客户端 CJS 闭包 + 两份 sourcemap + 类型声明）。
 
 ### 验证
 
@@ -125,7 +137,13 @@ pnpm typecheck && pnpm test && pnpm build && pnpm lint
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke.ps1
 ```
 
-它**不碰你真实的 `~/.dsh`**（临时 `DSH_HOME`），用 `--port 0` 取随机空闲端口（不占你正在用的 GUI），结束后按监听端口回收宿主并删掉临时目录；退出码 0 表示 23 项检查全部通过。
+它**不碰你真实的 `~/.dsh`**（临时 `DSH_HOME`），用 `--port 0` 取随机空闲端口（不占你正在用的 GUI），结束后按监听端口回收宿主并删掉临时目录；退出码 0 表示 27 项检查全部通过。
+
+一键部署到真实 profile（四道门禁 → 构建打包 → 备份 → 强制重装 → SHA256 校验，**绝不自动重启**你的宿主）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1
+```
 
 > 它**不覆盖浏览器渲染**：页签是否真的画出来需要浏览器自动化，本仓库没有那条 lane（`@playwright/test` 已随工作台移除）。冒烟只证明宿主装得上、路由通、围栏与越权还原符合预期。
 
@@ -138,6 +156,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke.ps1
 | `src/index.ts` | 宿主入口：注册技能、挂载 `/octopus/api` 围栏路由 |
 | `src/workspace-schema.ts` | 清单解析（JSONC、字段归一、默认值） |
 | `src/workspace-policy.ts` | 根解析与读/写基集，路径分类 |
+| `src/workspace-discovery.ts` | 会话 cwd 的清单发现（只扫一层、只认已声明扩展名、上报 `autoActivate` 与解析错误） |
 | `src/workspace-guards.ts` | 跨多基集的路径规范化与包含判定 |
 | `src/workspace-detector.ts` | 只读越权扫描与还原 |
 | `src/client/multiroot-tab.tsx` | 内置右侧栏里的作业区页签 |
