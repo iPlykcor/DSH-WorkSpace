@@ -160,9 +160,12 @@ export const api = {
     call<{ sessionId: string; cwd: string; root: string; parent: string | null }>('session.cwd', scopePayload(scope, {}), signal),
   fsTree: (scope: SessionScope, path: string, signal?: AbortSignal) =>
     call<{ path: string; entries: FsEntry[]; truncated: boolean }>('fs.tree', scopePayload(scope, { path }), signal),
-  /** The session's active operation space (null = none activated). */
+  /**
+   * The session's active operation space (null = none activated), plus whether
+   * this host has a desktop file manager the reveal action could drive.
+   */
   workspaceState: (scope: SessionScope, signal?: AbortSignal) =>
-    call<{ workspace: WorkspaceSnapshot | null }>('workspace.state', scopePayload(scope, {}), signal),
+    call<{ workspace: WorkspaceSnapshot | null; canReveal: boolean }>('workspace.state', scopePayload(scope, {}), signal),
   /**
    * Manifests sitting in the session cwd. This is the call that runs while
    * nothing is active (`workspace.state` returned null), so unlike `fsTree` it
@@ -182,4 +185,11 @@ export const api = {
   /** Best-effort restore of one violation (user-invoked). */
   workspaceRollback: (scope: SessionScope, callId: string) =>
     call<{ ok: boolean; message: string }>('workspace.rollback', scopePayload(scope, { callId })),
+  /**
+   * Hand one path inside the active space to the desktop file manager (a
+   * directory opens; a file is revealed). The host fences it exactly like a
+   * read, so a path outside every declared root fails with `forbidden`.
+   */
+  workspaceReveal: (scope: SessionScope, path: string) =>
+    call<{ ok: true; path: string; kind: 'dir' | 'file' }>('workspace.reveal', scopePayload(scope, { path })),
 }

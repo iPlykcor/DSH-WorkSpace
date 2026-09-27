@@ -20,8 +20,11 @@
  */
 import type { SessionStore } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
-import type { SidebarSessionPersistenceService, SidebarSessionStore } from '../src/context-types.ts'
+import type {
+  SidebarSessionPersistenceService, SidebarSessionStore, SidebarToolDefinition,
+} from '../src/context-types.ts'
 
 /**
  * Resolves to `true` when `A` is assignable to `B`: the `A extends B`
@@ -37,9 +40,17 @@ const _store: Satisfies<SessionStore, SidebarSessionStore> = true
 /** The host persistence service must still provide the cold-session reads. */
 const _persistence: Satisfies<SessionPersistence, SidebarSessionPersistenceService> = true
 
+/**
+ * The registry must still ACCEPT what this plugin registers. This guard's
+ * direction is the one that matters: a renamed `output.render`, a widened
+ * `execute` parameter or a newly required member must fail `pnpm typecheck`
+ * here, not leave the one model-visible capability silently unregistered.
+ */
+const _tool: Satisfies<SidebarToolDefinition, ToolDefinition> = true
+
 describe('host type contract', () => {
-  it('mirrors the installed dsh-session and dsh-session-persistence service faces', () => {
-    // Both assertions are already resolved by the compiler; this reports them.
-    expect([_store, _persistence]).toEqual([true, true])
+  it('mirrors the installed dsh-session, dsh-session-persistence and dsh-tools faces', () => {
+    // Every assertion is already resolved by the compiler; this reports them.
+    expect([_store, _persistence, _tool]).toEqual([true, true, true])
   })
 })

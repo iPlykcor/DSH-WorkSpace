@@ -78,8 +78,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -DshHome 
 2. **打开文件只能委托**：`ctx.sidebarRight.openResource(address, { params: { line? } })`。内置文档预览是**唯一**认领文件地址的页类型，其 `canOpen` 是 `parseFileAddress(a)?.scope === 'session'`——**`absolute` scope 无人认领，调用会抛错**。因此地址必须用 `session` scope 携带绝对路径（清单声明的会话根之外目录同理）。
 3. **没有可嵌入的查看器**：`renderSlot` 只发给在自己 `register` 里声明了 `children` 的注册者，第三方无法把内置查看器挂进自己的页签。要么委托打开，要么自己实现渲染——本包选前者。
 4. **`ctx.remote.session.openWorkspacePath` 不是查看器**：它交接给操作系统的默认程序 / 文件管理器，DSH 界面里什么都不渲染。本包不使用它。
-5. **图标来自 `@deepseek-ai/dsh-client-ui-primitives`**（平台模块表内）。其导出按**粗细**命名（`…Regular` / `…Medium`），不是尺寸后缀——0.1.2 时代的 `IconFolderOpen16` 在 0.1.7 已不存在。权限语义直接用产品自己的 `PermissionIconReadOnlyRegular` / `PermissionIconFullAccessRegular`。
+5. **图标来自 `@deepseek-ai/dsh-client-ui-primitives`**（平台模块表内）。其导出按**粗细**命名（`…Regular` / `…Medium`），不是尺寸后缀——0.1.2 时代的 `IconFolderOpen16` 在 0.1.7 已不存在。**平台没有任何锁形图标**：279 个导出里 `Lock` 只匹配到 `Clock`。因此只读小锁是内联在 `src/client/root-markers.tsx` 里的 codicon `lock` 路径（16 网格，CC-BY-4.0，署名随源码与产物一起交付）——它原本来自 `react-icons/vsc`，而那是**运行时依赖**，随本包收敛为零运行时依赖一起被移除，当时临时换成的 `PermissionIconReadOnlyRegular`（**盾牌+对勾**）/ `PermissionIconFullAccessRegular`（**盾牌+感叹号**）读起来是两种不同的告警而不是同一种权限状态，已弃用。圆圈感叹号用 `IconWarningOutlineRegular`：平台 README 明示 Warning 用圆圈、WarningTriangle 用圆角三角。
 6. **i18n 命名空间 `octopus`**：`zh` 是键的唯一事实来源，`en` 由 `Record<CopyKey, string>` 在编译期强制对齐（漏键即类型错误）。没有第三语言覆盖层。
+7. **悬停气泡用平台 `Tooltip`，它不需要 Provider**：`TooltipSuppression` 的内联默认值就是 `createContext(null)`，19 个内置插件都直接锚定它（声明 Provider 的插件数为 0）。两个必须记住的点：(1) **`portal: true` 是必需的**——根目录列表在 `overflow: auto` 容器里滚动，非 portal 的气泡会被该容器裁掉；(2) `label` 只接受字符串或返回字符串的函数，而 Windows 路径没有断行点，所以只在**展示用**的 label 里按分隔符插入零宽空格以便折行——行的 `title` 与任何会被当作路径复用的字符串都保持原样。改客户端图标或气泡后，`tests/root-markers.spec.tsx` 会先于浏览器渲染亮红。
+8. **桌面交接是我们自己做的，而且必须无 shell**：内置 open-in-app 的目录入口绑在**会话 cwd** 上，Windows 上落到 `explorer.exe "file:///…"`，而且 runner 写死 `windowsHide: true`——**实测窗口会被建出来但不可见**（同一 URL：`windowsHide:true` → `IsWindowVisible=False`，`false` → `True`），所以它返回 200、日志干净，用户却什么也看不到。作业区恰恰是 cwd 之外的目录，所以 `workspace.reveal` 自己 spawn：**绝不拼命令字符串**（永远传 argv）、**`windowsHide: false` + `detached`**。Windows 的 argv 只认**纯宿主路径**：目录 → `explorer.exe <path>`；文件 → `/select,<path>` 放**同一个** argv 元素。两条实测禁区——**file URL 形式**（`/select,file:///…`，DSH 自己的写法）在中文路径下会被 Explorer 丢去打开**桌面**；**给路径加引号**会打开**文档**且什么都不选中。路径里含**英文逗号**时无法选中（`/select,` 按逗号切分参数），此时降级为打开**所在目录**。Explorer 的退出码 1 = 已交棒给桌面进程（与 `dsh-native-command` 同语义），超时同样算成功并 `unref`（那说明 explorer.exe 自己变成了 shell）。围栏复用**读围栏** `ensureWsReadTarget`（realpath + 声明根包含判定），所以符号链接也偷不出作业区。**测试与冒烟绝不触发它**：成功分支会在跑测试的机器上弹真实窗口——argv 由 `tests/native-reveal.spec.ts` 锁定。人工验证必须同时查**可见性与选中项**：`Shell.Application.Windows()` 会列出**不可见**的窗口登记项（实测 25 条里只有 3 条可见），只数窗口会得出完全错误的结论。
+9. **工具注册：`inject` 里必须写 `'tools'`，且 `output { schema, render }` 是强制的**：服务名是 `ctx.tools`（`ToolRuntime`，dsh-tools），`register(definition)` 返回注销器，`ctx.tools` 由 base bundle 挂载。handler 的**第二个**参数才是调用上下文，会话 id 是 `exec.agent?.session.id`（`agent` 可缺——非 agent 调用者没有它，必须自己判空，否则就是替别的会话作答）。**没有 `output` 的定义根本注册不上**（注册期直接 `TypeError`），而 `execute` 的返回值又要被 `output.schema` 校验，最后 `output.render(args, value)` 才把它变成模型看到的文本——三者缺一不可。`parameters` 用原生 JSON Schema 即可：本包不需要 `defineTool` 的 DSL，于是也没有新增运行时 import（零依赖不变）。`octopus_space` 是「清单标签 → 绝对路径」唯一的模型出口，语义改动时它属于四个同步点之一。
+10. **`dsh.plugin.json` 的 `contributes` 目前没有任何消费者**：对已安装的整棵 `@deepseek-ai` 树 grep `contributes` 只命中无关的英文注释，且**没有任何 DSH 包自带 `dsh.plugin.json`**，所以 `tools` / `skills` 两个数组保持为空是现状（技能的注册同样不在里面）。别照着自己的想象往里面填 schema。
 
 ---
 
@@ -88,7 +92,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -DshHome 
 - **先读后改**：对已存在文件执行 `edit` / `write` 前必须先 `read`（链式工具强制）；批量修改时先并行读全部目标文件，再逐个编辑。
 - **皮肤契约**：视觉值只消费 `--dsw-alias-*` / `--dsw-font-*` 令牌，不硬编码颜色；没有 CSS module 到达这个界面，样式是内联的。
 - **地址语法不手抄**：`src/client/file-address.ts` 之所以自己构造字符串，是因为它所在包不在客户端模块表内（导入会被纯度门拒）。它的正确性由 `tests/file-address.spec.ts` 对着**产品自己的 `parseFileAddress`** 做往返锁定——改实现必须同步该测试，否则就是猜。
-- **语义改动有三个同步点**：`workspace-schema.ts`（解析与默认值）↔ `workspace-policy.ts`（读/写基集）↔ `workspace-skill.ts`（模型可见的技能文案）。改一个就要看另外两个。
+- **语义改动有四个同步点**：`workspace-schema.ts`（解析与默认值）↔ `workspace-policy.ts`（读/写基集）↔ `workspace-skill.ts`（模型可见的技能文案）↔ `workspace-tool.ts`（模型可见的 `octopus_space` 工具：清单标签到绝对路径的唯一出口）。改一个就要看另外三个。
 - **`context-types.ts` 必须保持无 Node 类型**：它在客户端可达的声明图里；它用交叉类型而非 `declare module` 增强，因为宿主与客户端为 `sessions` 声明了不同类型，合并会 TS2717。
 
 ---
@@ -98,8 +102,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -DshHome 
 - **用户文档**：[README.md](README.md)（安装、清单格式、权限模型、限制）。
 - **设计史**：[docs/plans/](docs/plans/)。已移除功能的完整历史见 git tag `archive/sidebar-workbench`。
 - **关键测试守护**：
-  - `tests/host-routes.spec.ts` —— 唯一宿主路由的端到端行为（信任围栏、方法分派、信封、作业区生命周期、根围栏、只读越权报告与还原、冷会话路径、cwd 清单发现）；
+  - `tests/host-routes.spec.ts` —— 唯一宿主路由的端到端行为（信任围栏、方法分派、信封、作业区生命周期、根围栏、只读越权报告与还原、冷会话路径、cwd 清单发现、桌面交接的三种拒绝）；
+  - `tests/native-reveal.spec.ts` —— 桌面交接的 argv 构造（`/select,` 与目标必须是**一个** argv 元素、目标里不得出现引号或 file URL、含逗号的文件名降级为打开所在目录、路径永不被拼进命令字符串、三个平台各一条），**刻意不启动任何进程**；成功分支会在跑测试的机器上弹真实窗口，所以按设计只人工验证，而且要查**可见性与选中项**而不是窗口数量；
   - `tests/client-tab.spec.ts` —— 页签三重注册的身份一致性（type `id` 与两个座位 `key`）＋ 文案零死键；
+  - `tests/root-markers.spec.tsx` —— 根行两个标记的渲染契约：只读行画的是**真的锁形几何**（两条子路径）而不是空占位、读写行**不留任何权限标识**、圆圈感叹号在每一行且把绝对路径原样交给气泡（剥离零宽空格后必须逐字节相等）；
   - `tests/host-types.spec.ts` —— 手写结构镜像对真实宿主类型的编译期可赋值性（`inspect` 那类漂移的守门人）；
   - `tests/file-address.spec.ts` —— 文件地址对产品解析器的往返（最容易静默失配的一处）；
   - `tests/workspace-schema.spec.ts` —— 清单解析、JSONC、默认值；

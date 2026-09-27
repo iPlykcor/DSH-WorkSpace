@@ -9,7 +9,10 @@
 ## 它做什么
 
 - **多根目录**：一份 `*.dsh-octopus`（兼容旧名 `*.dsh-workspace`）清单一次列出多个根目录，侧边栏按会话隔离地展示与浏览。
-- **逐目录读写权限**：每个目录声明 `readWrite` 或 `readOnly`，**未标注默认只读**。
+- **逐目录读写权限**：每个目录声明 `readWrite` 或 `readOnly`，**未标注默认只读**；只读根的名字右侧显示一把小锁，读写根不带任何权限标识。
+- **一眼可见的绝对路径**：每个根目录行最右侧的圆圈感叹号，鼠标悬停（或键盘聚焦）即显示该根的绝对路径——只读行原本被"只读"文案占用的悬停位置，现在归还给路径本身。
+- **一键交给桌面**：任意文件夹行（根目录与子目录）悬停时出现一个打开图标，点它就在系统文件管理器里打开该目录；文件行则是"在文件管理器中选中"。它走插件自己的宿主路由，只对**当前作业区声明范围内**的路径生效。
+- **模型也"看得见"作业区**：宿主注册了一个 `octopus_space` 工具，模型可直接查到当前作业区每个根的**标签、绝对路径、读写权限与是否存在**——于是"rw 里有什么""看下现场问题"这类只提标签的指令不必再猜，模型会先把标签解析成绝对路径。
 - **只读保证**：插件自身**没有任何写入路由**——只读是结构性的，不是一层可绕过的校验。
 - **越权检测与还原**：模型（或任何写者）写入只读根时，插件折叠会话事件日志给出记录，并尽力还原。
 - **运行时技能**：随插件注册 `dsh-octopus` 技能，模型无需翻找范例即可按格式创建/编辑清单。
@@ -159,9 +162,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1
 | `src/workspace-discovery.ts` | 会话 cwd 的清单发现（只扫一层、只认已声明扩展名、上报 `autoActivate` 与解析错误） |
 | `src/workspace-guards.ts` | 跨多基集的路径规范化与包含判定 |
 | `src/workspace-detector.ts` | 只读越权扫描与还原 |
+| `src/native-reveal.ts` | 把一条已围栏的路径交给系统文件管理器（无 shell 的 argv，Explorer 退出码 1 视为已交接） |
 | `src/client/multiroot-tab.tsx` | 内置右侧栏里的作业区页签 |
+| `src/client/root-markers.tsx` | 根行右侧两个标记：内联小锁（codicon，CC-BY-4.0）与悬停显示绝对路径的圆圈感叹号 |
+| `src/client/reveal-button.tsx` | 行右侧的桌面动作：悬停时出现，点它把该行路径交给系统文件管理器 |
 | `src/client/file-address.ts` | `dsh-resource://` 文件地址构造（由测试对着产品解析器锁定） |
 
 ## 由来与许可
 
 本包从 [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar)（MIT，`omdsh-dev`）派生：该项目的多根工作区特性连同若干基础设施模块（`fs-tree` / `wire` / `trust-fence` / `session-path` / `context-types`）被保留并改写，其余侧边栏工作台功能全部移除。上游 MIT 署名见 [LICENSE](LICENSE)。
+
+界面上只读根的小锁是 Microsoft VS Code Codicons 的 `lock` 图标（[CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/)，作者 Microsoft Corporation），路径数据内联在 `src/client/root-markers.tsx`，完整署名与来源见该文件顶部注释。其余图标来自 DSH 自己的平台模块 `@deepseek-ai/dsh-client-ui-primitives`，不随本包分发。

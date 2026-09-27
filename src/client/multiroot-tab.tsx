@@ -18,6 +18,14 @@
  * a file outside the single session root) it can do now. See
  * ./file-address.ts for the address grammar and how it is pinned.
  *
+ * THE DESKTOP HANDOFF IS THE ONE THING NEITHER READ NOR DELEGATED. A hover-only
+ * action on every row hands that row's own path to the desktop file manager
+ * (`workspace.reveal`): a directory opens, a file is revealed. DSH's built-in
+ * open-in-app control cannot serve this — its directory entry is bound to the
+ * session cwd — so the host spawns the launcher itself, behind the same
+ * containment fence as every read. See ./reveal-button.tsx and
+ * ../native-reveal.ts.
+ *
  * WHY THE STATE MIRROR EXISTS: the host's per-session registry is in memory, so
  * a host restart empties it. The host is authoritative whenever it reports a
  * workspace; this plugin's own localStorage key exists only to re-activate the
@@ -28,10 +36,8 @@ import {
   IconFolderCloseMedium,
   IconFolderOpenMedium,
   IconRefreshOutlineMedium,
-  PermissionIconFullAccessRegular,
-  PermissionIconReadOnlyRegular,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type FocusEvent, type ReactNode } from 'react'
 import type { Context, SidebarRightFace, SidebarRightTabsFace } from '../context-types.ts'
 import {
   api,
@@ -40,6 +46,8 @@ import {
 import { decideDiscovery } from './discovery-decision.ts'
 import { sessionFileAddress } from './file-address.ts'
 import { t } from './locales.ts'
+import { RevealButton } from './reveal-button.tsx'
+import { RootRowMarkers } from './root-markers.tsx'
 
 /** Tab type identity: `id` keys the two slot seats, `kind` is what opens it. */
 const TAB_ID = 'octopus-operation-space'
@@ -173,6 +181,14 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
 
     /** The active operation space; undefined = still loading, null = none applied. */
     const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null | undefined>(undefined)
+    /** Whether this host can hand a path to a desktop file manager at all. */
+    const [canReveal, setCanReveal] = useState(false)
+    /**
+     * The one row whose hover (or focus) reveals its desktop action. A single
+     * value for the whole tree rather than per-row state: the action is
+     * hover-only, and per-row state would re-render every row on each move.
+     */
+    const [activeRow, setActiveRow] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
     const [notice, setNotice] = useState<string | null>(null)
     const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
@@ -296,10 +312,13 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
       setChildren(new Map())
       setViolations([])
       setViolationsOpen(false)
+      setCanReveal(false)
+      setActiveRow(null)
       void (async () => {
         try {
           const result = await api.workspaceState(sessionScope)
           if (!live()) return
+          setCanReveal(result.canReveal)
           if (result.workspace !== null) { setWorkspace(result.workspace); return }
           const manifestPath = persistedManifestPath(sessionId)
           if (manifestPath !== undefined) {
@@ -398,6 +417,42 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
       }
     }
 
+    /**
+     * Hand one row's path to the desktop file manager. A failure is reported
+     * where every other failure in this tab is reported: an action that cannot
+     * work must say so rather than look like a dead icon.
+     * @param path - the row's absolute path.
+     */
+    const reveal = (path: string): void => {
+      if (sessionId === undefined || sessionId === '') return
+      const target: SessionScope = { sessionId, ...(cwd !== undefined && cwd !== '' ? { cwd } : {}) }
+      void api.workspaceReveal(target, path)
+        .catch((failure: unknown) => { setError(t('workspaceRevealFailed', { message: messageOf(failure) })) })
+    }
+
+    /**
+     * Hover/focus plumbing for the hover-only reveal action. Focus has to show
+     * it too, or the action would be keyboard-unreachable; the blur handler asks
+     * whether focus stayed INSIDE the row, because moving it from the row button
+     * onto the action button must not hide the button being reached.
+     * @param path - the row's path.
+     * @returns the handlers a row wrapper spreads.
+     */
+    const rowActivity = (path: string): {
+      onMouseEnter: () => void
+      onMouseLeave: () => void
+      onFocus: () => void
+      onBlur: (event: FocusEvent<HTMLDivElement>) => void
+    } => ({
+      onMouseEnter: () => { setActiveRow(path) },
+      onMouseLeave: () => { setActiveRow((current) => (current === path ? null : current)) },
+      onFocus: () => { setActiveRow(path) },
+      onBlur: (event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+        setActiveRow((current) => (current === path ? null : current))
+      },
+    })
+
     /** Render one directory's children (indented by depth). */
     const renderRows = (parent: string, depth: number): ReactNode => {
       const entries = children.get(parent)
@@ -410,24 +465,35 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
       return entries.map((entry) => {
         const open = expanded.has(entry.path)
         return (
-          <button
-            key={entry.path}
-            type="button"
-            title={entry.path}
-            aria-expanded={entry.isDir ? open : undefined}
-            style={{
-              ...rowBase,
-              width: '100%', border: 0, background: 'transparent', cursor: 'pointer', textAlign: 'left',
-              paddingLeft: 10 + depth * INDENT, opacity: entry.broken ? 0.5 : 1,
-            }}
-            onClick={() => { if (entry.isDir) toggle(entry.path); else openFile(entry.path) }}
-          >
-            {entry.isDir
-              ? (open ? <IconFolderOpenMedium size={14} /> : <IconFolderCloseMedium size={14} />)
-              : <span style={{ width: 14, flex: 'none' }} />}
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.name}</span>
-            {entry.isSymlink && <span style={{ fontSize: 11, opacity: 0.5 }}>↗</span>}
-          </button>
+          <div key={entry.path} style={{ ...rowBase, width: '100%' }} {...rowActivity(entry.path)}>
+            <button
+              type="button"
+              title={entry.path}
+              aria-expanded={entry.isDir ? open : undefined}
+              style={{
+                ...rowBase,
+                flex: 1, minWidth: 0, border: 0, background: 'transparent', cursor: 'pointer', textAlign: 'left',
+                paddingLeft: 10 + depth * INDENT, opacity: entry.broken ? 0.5 : 1,
+              }}
+              onClick={() => { if (entry.isDir) toggle(entry.path); else openFile(entry.path) }}
+            >
+              {entry.isDir
+                ? (open ? <IconFolderOpenMedium size={14} /> : <IconFolderCloseMedium size={14} />)
+                : <span style={{ width: 14, flex: 'none' }} />}
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.name}</span>
+              {entry.isSymlink && <span style={{ fontSize: 11, opacity: 0.5 }}>↗</span>}
+            </button>
+            {/* A broken link has no target to hand to the desktop, and the host
+                would refuse it anyway: the row simply offers no action. */}
+            {canReveal && !entry.broken && (
+              <RevealButton
+                path={entry.path}
+                label={entry.isDir ? t('workspaceOpenFolder') : t('workspaceShowFile')}
+                onReveal={reveal}
+                visible={activeRow === entry.path}
+              />
+            )}
+          </div>
         )
       })
     }
@@ -575,24 +641,39 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
             const permission = readOnly ? t('workspaceFolderReadOnly') : root.path
             return (
               <div key={root.path}>
-                <button
-                  type="button"
-                  title={missing ? `${permission} — ${t('workspaceMissingFolder')}` : permission}
-                  aria-expanded={open}
-                  style={{
-                    ...rowBase,
-                    width: '100%', border: 0, background: 'transparent', cursor: 'pointer', textAlign: 'left',
-                    fontWeight: 600, opacity: missing ? 0.5 : 1,
-                  }}
-                  onClick={() => { toggle(root.path) }}
-                >
-                  {open ? <IconFolderOpenMedium size={16} /> : <IconFolderCloseMedium size={16} />}
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{root.label}</span>
-                  {missing && <span style={{ fontSize: 11, opacity: 0.55 }}>{t('workspaceMissingFolder')}</span>}
-                  <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', opacity: 0.6 }}>
-                    {readOnly ? <PermissionIconReadOnlyRegular size={14} /> : <PermissionIconFullAccessRegular size={14} />}
-                  </span>
-                </button>
+                <div style={{ ...rowBase, width: '100%' }} {...rowActivity(root.path)}>
+                  <button
+                    type="button"
+                    title={missing ? `${permission} — ${t('workspaceMissingFolder')}` : permission}
+                    aria-expanded={open}
+                    style={{
+                      ...rowBase,
+                      flex: 1, minWidth: 0, border: 0, background: 'transparent', cursor: 'pointer', textAlign: 'left',
+                      fontWeight: 600, opacity: missing ? 0.5 : 1,
+                    }}
+                    onClick={() => { toggle(root.path) }}
+                  >
+                    {open ? <IconFolderOpenMedium size={16} /> : <IconFolderCloseMedium size={16} />}
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{root.label}</span>
+                    {missing && <span style={{ fontSize: 11, opacity: 0.55 }}>{t('workspaceMissingFolder')}</span>}
+                    <RootRowMarkers
+                      readOnly={readOnly}
+                      path={root.path}
+                      lockLabel={t('workspaceFolderReadOnly')}
+                      pathLabel={t('workspaceFolderPath')}
+                    />
+                  </button>
+                  {/* A root that does not exist has nothing to open, and the host
+                      would refuse it: the row offers no desktop action. */}
+                  {canReveal && !missing && (
+                    <RevealButton
+                      path={root.path}
+                      label={t('workspaceOpenFolder')}
+                      onReveal={reveal}
+                      visible={activeRow === root.path}
+                    />
+                  )}
+                </div>
                 {open && renderRows(root.path, 1)}
               </div>
             )

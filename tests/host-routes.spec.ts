@@ -13,8 +13,11 @@
  * dispatch would have passed both. These tests mount for real and speak HTTP.
  *
  * The fake context deliberately mirrors the runtime contract rather than a
- * convenience shape: `effect` invokes the body and keeps its disposer, and
- * `webServer.register` captures the route exactly as the host webserver does.
+ * convenience shape: `effect` invokes the body and keeps its disposer,
+ * `webServer.register` captures the route exactly as the host webserver does,
+ * and `tools.register` captures the tool definition the host would publish to
+ * the model (its handler is then called with a stub run context, which is the
+ * only way to assert the one thing the model ever sees).
  */
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -25,6 +28,8 @@ import type {
   SidebarHttpRequest,
   SidebarHttpResponse,
   SidebarSessionEvent,
+  SidebarToolDefinition,
+  SidebarToolRunContext,
   SidebarWebRoute,
 } from '../src/context-types.ts'
 import { API_PREFIX, apply } from '../src/index.ts'
@@ -60,6 +65,8 @@ afterEach(async () => {
 /** The mounted host half: the captured route plus the live event-log array. */
 interface Harness {
   route: SidebarWebRoute
+  /** Every tool definition the plugin registered (the model-visible surface). */
+  tools: SidebarToolDefinition[]
   /** Mutate AFTER activation to simulate writes the host session log records. */
   events: SidebarSessionEvent[]
   /** Everything the plugin logged (the fake captures `ctx.logger.info/warn`). */
@@ -90,6 +97,7 @@ interface MountOptions {
  */
 function mount(options: MountOptions = {}): Harness {
   const routes: SidebarWebRoute[] = []
+  const tools: SidebarToolDefinition[] = []
   const disposers: Array<() => void> = []
   const logs: string[] = []
   const events = options.events ?? []
@@ -101,6 +109,12 @@ function mount(options: MountOptions = {}): Harness {
       },
     },
     webRuntime: { trustedHosts: options.trustedHosts ?? [] },
+    tools: {
+      register(definition: SidebarToolDefinition): () => void {
+        tools.push(definition)
+        return () => { /* the fake owns teardown */ }
+      },
+    },
     sessions: {
       get: (id: string) => (id === SESSION ? { header: { cwd }, snapshotEvents: () => events } : undefined),
     },
@@ -120,6 +134,7 @@ function mount(options: MountOptions = {}): Harness {
   if (routes.length !== 1) throw new Error(`expected exactly one route, got ${routes.length}`)
   return {
     route: routes[0]!,
+    tools,
     events,
     logs,
     dispose: () => { for (const disposer of disposers) disposer() },
@@ -555,5 +570,120 @@ describe('host route cold sessions (the branch a real host broke)', () => {
     }))
     expect((report.violations as Array<{ callId: string }>).map(violation => violation.callId)).toEqual(['c9'])
     expect(harness.logs.filter(line => line.includes('violation report degraded'))).toEqual([])
+  })
+})
+
+describe('host route desktop handoff', () => {
+  it('reports whether this host has a desktop file manager at all', async () => {
+    const harness = mount()
+    const details = value(await send(harness.route, {
+      method: 'workspace.state',
+      body: JSON.stringify({ sessionId: SESSION }),
+    }))
+    // The three supported desktops answer true. The field exists so a host
+    // WITHOUT one hides the row action instead of offering a doomed button.
+    expect(typeof details.canReveal).toBe('boolean')
+    if (process.platform === 'win32' || process.platform === 'darwin' || process.platform === 'linux') {
+      expect(details.canReveal).toBe(true)
+    }
+  })
+
+  it('refuses a reveal while no operation space is active', async () => {
+    const harness = mount()
+    const reply = await send(harness.route, {
+      method: 'workspace.reveal',
+      body: JSON.stringify({ sessionId: SESSION, path: cwd }),
+    })
+    expect(reply.status).toBe(403)
+    expect(errorCode(reply)).toBe('forbidden')
+  })
+
+  it('refuses a path outside every declared root', async () => {
+    const harness = mount()
+    await activate(harness)
+    const outside = join(root, 'outside')
+    await mkdir(outside)
+    const reply = await send(harness.route, {
+      method: 'workspace.reveal',
+      body: JSON.stringify({ sessionId: SESSION, path: outside }),
+    })
+    expect(reply.status).toBe(403)
+    expect(errorCode(reply)).toBe('forbidden')
+  })
+
+  it('refuses a missing path inside the space rather than launching anything', async () => {
+    const harness = mount()
+    await activate(harness)
+    const reply = await send(harness.route, {
+      method: 'workspace.reveal',
+      body: JSON.stringify({ sessionId: SESSION, path: join(roRoot, 'never-existed.txt') }),
+    })
+    expect(reply.status).toBe(400)
+  })
+
+  // The SUCCESS path is deliberately absent here: it would open a real window on
+  // the machine running the suite. Its two halves are covered instead —
+  // `native-reveal.spec.ts` pins the exact argv per platform, and the launched
+  // handoff is verified by hand once per change (and never in the smoke script,
+  // which would pop windows on a machine nobody is watching).
+})
+
+describe('model-visible operation space tool', () => {
+  /** The stub run context a tool handler receives (shape per dsh-tools). */
+  const execFor = (sessionId: string): SidebarToolRunContext => ({
+    agent: { session: { id: sessionId } },
+    signal: new AbortController().signal,
+  })
+
+  it('registers exactly one tool whose projection states the label-to-path contract', async () => {
+    const harness = mount()
+    expect(harness.tools.map(tool => tool.name)).toEqual(['octopus_space'])
+    const tool = harness.tools[0]!
+    // The description is the model's ENTIRE contract — nothing else of the
+    // definition reaches the wire (the runtime whitelists name/description/
+    // parameters), so an empty or silent one would leave the tool unreachable
+    // in practice even though it is registered.
+    expect(tool.description).toContain('章鱼作业区')
+    expect(tool.description).toContain('LABEL')
+    expect(tool.description).toContain('read-only')
+    expect(tool.parameters).toEqual({ type: 'object', properties: {}, additionalProperties: false })
+    // A definition without `output` never registers; both halves must exist.
+    expect(tool.output.schema).toEqual({ type: 'string' })
+    expect(tool.output.render({}, 'payload')).toEqual([{ type: 'text', text: 'payload' }])
+  })
+
+  it('says no space is active instead of inventing one, then reports roots with labels and access', async () => {
+    const harness = mount()
+    const tool = harness.tools[0]!
+    const exec = execFor(SESSION)
+
+    const before = JSON.parse(String(await tool.execute({}, exec))) as { active: boolean; hint?: string }
+    expect(before.active).toBe(false)
+    expect(before.hint).toBeTypeOf('string')
+
+    // `activate` resolves to the activated snapshot itself (see the lifecycle
+    // tests above); the tool must then report exactly that space.
+    await activate(harness)
+    const payload = JSON.parse(String(await tool.execute({}, exec))) as {
+      active: boolean
+      workspace: { manifestPath: string; roots: Array<{ label: string; path: string; access: string; exists: boolean }> }
+    }
+    expect(payload.active).toBe(true)
+    expect(payload.workspace.manifestPath).toBe(manifestPath)
+
+    // The whole point of the tool: the label the user typed resolves to the
+    // absolute path the manifest granted, with the access the manifest declared.
+    const ro = payload.workspace.roots.find(root => root.label === 'ro')
+    expect(ro).toEqual({ label: 'ro', path: roRoot, access: 'readOnly', exists: true, listed: true })
+    // The session cwd rides along as the implicit readWrite root, so the model
+    // also learns the one folder it is allowed to write without being told.
+    expect(payload.workspace.roots.some(root => root.access === 'readWrite')).toBe(true)
+  })
+
+  it('fails loudly when the call has no owning session rather than answering for another one', async () => {
+    const harness = mount()
+    const tool = harness.tools[0]!
+    await expect(tool.execute({}, { signal: new AbortController().signal }))
+      .rejects.toThrow('needs the calling session')
   })
 })

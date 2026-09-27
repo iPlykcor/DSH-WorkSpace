@@ -21,11 +21,19 @@
  * The route passes the same browser-trust fence as the /api gateway:
  * Host-header loopback or the web runtime's `trustedHosts`, read per request
  * from the live service value so the fence tracks the same trust source.
+ *
+ * `workspace.reveal` is the one method that reaches outside this process: it
+ * hands a path INSIDE the active space to the desktop file manager. It is not a
+ * file operation — nothing is read or written through it — and it passes the
+ * same containment fence as every read, so the active manifest stays the only
+ * thing that decides which paths exist for this plugin at all.
  */
+import { stat } from 'node:fs/promises'
 import type {
   Context, SidebarHttpRequest, SidebarSessionEvent, SidebarSessionPersistenceService,
 } from './context-types.ts'
 import { listDirectory, parentOf, requireAbsolute, rootLabel } from './fs-tree.ts'
+import { canRevealNative, revealInvocation, revealNative } from './native-reveal.ts'
 import { isTrustedApiRequest } from './trust-fence.ts'
 import { readJsonBody, requireString, SidebarError, writeError, writeJson, writeOk } from './wire.ts'
 import { ensureWsReadTarget } from './workspace-guards.ts'
@@ -34,12 +42,22 @@ import { rollbackWsViolation, scanWsViolations } from './workspace-detector.ts'
 import { discoverManifests } from './workspace-discovery.ts'
 import { hostCaseInsensitive, snapshotOf, WorkspaceRegistry } from './workspace-state.ts'
 import { WORKSPACE_SKILL } from './workspace-skill.ts'
+import { createWorkspaceTool } from './workspace-tool.ts'
 
 /** Plugin identity for cordis.yml rows. */
 export const name = 'dsh-octopus-operation-space'
 
-/** Services required before mounting: the webserver routes, the session store, the web runtime's trusted hosts. */
-export const inject = ['webServer', 'sessions', 'webRuntime']
+/**
+ * Services required before mounting: the webserver routes, the session store,
+ * the web runtime's trusted hosts, and the tool registry.
+ *
+ * `tools` is a HARD dependency, not a probe. The trap AGENTS.md §3.1 records for
+ * `sidebarRightTabs` applies here identically: a `ctx.get('tools')` that runs
+ * before the provider is activated reads `undefined`, the no-op is permanent,
+ * and nothing is logged. Every DSH tool plugin declares it the same way, and the
+ * base bundle mounts the service — a host without it cannot use this plugin.
+ */
+export const inject = ['webServer', 'sessions', 'webRuntime', 'tools']
 
 /** The route prefix every method of this plugin hangs under. */
 export const API_PREFIX = '/octopus/api'
@@ -177,7 +195,13 @@ function buildApi(ctx: Context, wsReg: WorkspaceRegistry): Record<string, ApiMet
     'workspace.state': async (payload) => {
       const { sessionId } = await cwdOf(payload)
       const active = wsReg.get(sessionId)
-      return { workspace: active === undefined ? null : snapshotOf(active) }
+      // `canReveal` travels with the snapshot so the client hides the desktop
+      // affordance on a host with no file manager, instead of offering a button
+      // whose only possible outcome is a failure.
+      return {
+        workspace: active === undefined ? null : snapshotOf(active),
+        canReveal: canRevealNative(),
+      }
     },
     // Discovery answers the question `workspace.state` just answered with
     // "nothing", so it must NOT go through `readTargetOf` (which 403s while no
@@ -220,6 +244,28 @@ function buildApi(ctx: Context, wsReg: WorkspaceRegistry): Record<string, ApiMet
       const events = await eventsOfSession(ctx, sessionId)
       return rollbackWsViolation(active, cwd, events, requireString(payload, 'callId'))
     },
+    // Hand one path inside the active space to the desktop file manager. The
+    // fence is the READ fence reused verbatim: `ensureWsReadTarget` realpaths
+    // the target (so a symlink cannot smuggle a path out of the space) and
+    // requires containment in a declared root before anything is launched.
+    'workspace.reveal': async (payload) => {
+      const { sessionId, cwd } = await cwdOf(payload)
+      const target = await readTargetOf(sessionId, cwd, requireString(payload, 'path'))
+      // `stat`, not `lstat`: the target is already canonical, and the row must
+      // be told what it is — a directory opens, a file is revealed.
+      const info = await stat(target).catch(() => undefined)
+      if (info === undefined) {
+        throw new SidebarError('fs-error', `cannot read "${target}"`, 400)
+      }
+      const invocation = revealInvocation(target, info.isDirectory())
+      if (invocation === undefined) {
+        // Not a failure of the request but of the deployment: no launcher for
+        // this platform exists, so the route itself cannot be served here.
+        throw new SidebarError('bad-request', 'this host has no desktop file manager', 400)
+      }
+      await revealNative(invocation)
+      return { ok: true, path: target, kind: info.isDirectory() ? 'dir' : 'file' }
+    },
   }
 }
 
@@ -239,6 +285,16 @@ export function apply(ctx: Context): void {
   const fence = (req: SidebarHttpRequest): boolean => isTrustedApiRequest(req, ctx.webRuntime.trustedHosts)
   const workspaceRegistry = new WorkspaceRegistry((message) => ctx.logger?.info(`[octopus] ${message}`))
   ctx.effect(() => () => workspaceRegistry.dispose(), 'octopus: operation-space registry teardown')
+
+  // Make the active space MODEL-visible. The tab has always known which absolute
+  // path a label like "rw" stands for; this is how the model learns it instead of
+  // guessing. The registration sits inside `ctx.effect` and returns the disposer
+  // `register` hands back, so unmount and HMR both unregister the tool.
+  ctx.effect(
+    () => ctx.tools.register(createWorkspaceTool(workspaceRegistry)),
+    'octopus: register the operation-space tool',
+  )
+
   const api = buildApi(ctx, workspaceRegistry)
 
   // ── JSON API ────────────────────────────────────────────────────────────

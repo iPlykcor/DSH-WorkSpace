@@ -57,6 +57,56 @@ export interface SidebarWebServer {
   register(route: SidebarWebRoute): () => void
 }
 
+/** One content block a tool's `render` returns (text is all this plugin emits). */
+export interface SidebarToolContentBlock {
+  type: 'text'
+  text: string
+}
+
+/** The per-call context a tool handler receives (the slice this plugin reads). */
+export interface SidebarToolRunContext {
+  /**
+   * The agent on whose behalf the call runs. Optional in the real contract —
+   * a non-agent caller has none — so a handler that needs a session must check.
+   */
+  agent?: { session: { id: string } }
+  signal: AbortSignal
+}
+
+/**
+ * One model-visible tool definition (mirror of @deepseek-ai/dsh-tools'
+ * `ToolDefinition`, minus the presentation-only members this plugin ignores).
+ *
+ * TWO CONSTRAINTTS ARE THE WHOLE CONTRACT: `output` is MANDATORY — `execute`
+ * returns the canonical JSON value that `output.schema` validates, and
+ * `output.render` turns that value into the model-facing content blocks; and
+ * `parameters` is raw JSON Schema (the DSL wrapper is a convenience this plugin
+ * does not need, since its one tool takes no arguments).
+ */
+export interface SidebarToolDefinition {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+  output: {
+    schema: Record<string, unknown>
+    // Mutable array on purpose: the real `render` returns `ContentBlock[]`, and a
+    // `readonly` return here is NOT assignable to it (the host declares `render`
+    // as a property, so no method bivariance saves it). tests/host-types.spec.ts
+    // is what caught that.
+    render(args: unknown, value: unknown): SidebarToolContentBlock[]
+  }
+  execute(args: unknown, exec: SidebarToolRunContext): Promise<unknown>
+}
+
+/**
+ * The tool registry face (`ctx.tools`). Registering here is what makes a
+ * capability MODEL-visible rather than only UI-visible; the returned disposer
+ * unregisters it (the runtime also owns it as a context effect).
+ */
+export interface SidebarToolsService {
+  register(definition: SidebarToolDefinition): () => void
+}
+
 /** A published session's header slice the plugin reads (authoritative cwd). */
 export interface SidebarSessionHeader {
   cwd?: string
@@ -284,6 +334,8 @@ export interface SidebarContextShape {
   invariants: SidebarInvariantsService
   /** The client locale service face. */
   locale: SidebarLocaleService
+  /** The tool registry (dsh-tools) that makes the active space model-visible. */
+  tools: SidebarToolsService
   /** The host session-persistence service (optional; cold-session reads). */
   sessionPersistence?: SidebarSessionPersistenceService
   /**

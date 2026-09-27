@@ -62,11 +62,13 @@ const WORKSPACE_SKILL_BODY = [
   '- The file is the single source of truth. Opening the operation-space tab SCANS the session cwd one level for `*.dsh-octopus` and applies it when it is the only manifest there and does not set `settings.autoActivate: false`; with several candidates the tab lists them and the user picks one. So a manifest placed at the session cwd needs no hand-typed path.',
   '- After you create or edit such a file at the session cwd, tell the user to open (or re-open) the operation-space tab. A manifest that lives elsewhere still needs its path pasted into that panel, whose refresh icon re-applies the active manifest.',
   '- The session cwd is auto-included as an implicit readWrite root unless the manifest lists it (then its listed access wins).',
+  '- Which folders are ACTUALLY granted right now is answered by the `octopus_space` tool, never by guessing: it returns every declared root of the active space with its label, absolute path, read/write access and whether it exists. Call it before acting on a folder the user names by label alone ("rw", "现场问题"), and whenever the answer depends on which roots are read-only.',
   '- Model native tools are still sandboxed to the session cwd; folders outside it (e.g. Desktop) are reachable by the operation space, not by the model\'s tools.',
   '',
   '## Common asks',
   '- "把这些目录建成作业区（目录1/2 读写、目录3 只读）" → create a `.dsh-octopus` with those `folders` and the right `access`.',
   '- "把权限改成读写 / 加一个目录 / 删一个目录" → edit the matching `folders` entry, keep the rest intact, then ask the user to re-apply.',
+  '- "rw 里有什么 / 看下现场问题那个目录" → the label is the manifest\'s, so call `octopus_space` first and use the absolute path it reports.',
 ].join('\n')
 
 /** The runtime skill this plugin registers for `*.dsh-octopus`. */
