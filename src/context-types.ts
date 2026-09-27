@@ -397,6 +397,21 @@ export interface SidebarShortcutsService {
  * cordis `Context` below (see the file header for why intersection is used
  * instead of module augmentation).
  */
+/**
+ * Structural face of the built-in workspace UI service
+ * (`@deepseek-ai/dsh-client-ui-workspace`): the host's OWN native directory
+ * chooser. `pickDirectory` resolves to the absolute path the operator picked in
+ * the host process, or `null` when they cancelled; it rejects with the product's
+ * reason when the deployment has no chooser to serve the request.
+ *
+ * Read through `ctx.get('uiWorkspace')` and never declared in the client entry's
+ * `inject` array — the same rule and the same reason as every other service this
+ * plugin borrows (AGENTS §3.1).
+ */
+export interface UiWorkspaceFace {
+  pickDirectory(): Promise<string | null>
+}
+
 export interface SidebarContextShape {
   /** The webServer service face this plugin uses. */
   webServer: SidebarWebServer
@@ -426,6 +441,8 @@ export interface SidebarContextShape {
    * inside a `ctx.inject` wrapper.
    */
   shortcuts?: SidebarShortcutsService
+  /** The built-in workspace UI service; only its native directory chooser is used. */
+  uiWorkspace?: UiWorkspaceFace
   /** The tool registry (dsh-tools) that makes the active space model-visible. */
   tools: SidebarToolsService
   /** The host session-persistence service (optional; cold-session reads). */

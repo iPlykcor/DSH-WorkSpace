@@ -44,21 +44,25 @@ import {
   IconFolderOpenRegular,
   IconRefreshOutlineRegular,
   PathLabel,
+  RiskConfirmation,
   classifyFileType,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { useCallback, useEffect, useRef, useState, type FocusEvent, type ReactNode } from 'react'
-import type { Context, SidebarRightFace, SidebarRightTabsFace } from '../context-types.ts'
+import { useCallback, useEffect, useRef, useState, type FocusEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import type { Context, SidebarRightFace, SidebarRightTabsFace, UiWorkspaceFace } from '../context-types.ts'
+import type { OctopusAccess } from '../workspace-schema.ts'
 import {
   api,
   type FsEntry, type ManifestCandidate, type SessionScope, type WorkspaceSnapshot, type WorkspaceViolation,
 } from './api.ts'
+import { PointerContextMenu, accessOfMenuId, buildBodyMenu, type MenuPoint } from './body-menu.tsx'
 import { decideDiscovery } from './discovery-decision.ts'
 import { orderEntries } from './entry-order.ts'
 import { sessionFileAddress } from './file-address.ts'
 import { OctopusGuideArtwork } from './guide-artwork.tsx'
 import { t } from './locales.ts'
 import { RevealButton } from './reveal-button.tsx'
-import { RootPermissionMarker, RootTrailingBadge } from './root-markers.tsx'
+import { RootPermissionToggle, RootTrailingBadge } from './root-markers.tsx'
+import { buildRowMenu, rowMenuIntent } from './row-menu.tsx'
 import { ToolButton } from './tool-button.tsx'
 import {
   LABEL_PRIMARY,
@@ -295,6 +299,152 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
      * is tested; this function only wires it to the view.
      * @param sessionScope - the scope this scan belongs to.
      */
+    /** Where the body's right-click menu was opened; null = closed. */
+    const [menuAt, setMenuAt] = useState<MenuPoint | null>(null)
+    /** Whether the host's folder chooser is in flight. */
+    const [picking, setPicking] = useState(false)
+    /** The root whose access change is in flight, so only that padlock is busy. */
+    const [accessPath, setAccessPath] = useState<string | null>(null)
+    /** The row whose context menu is open; null while the body's menu is the one up. */
+    const [menuRoot, setMenuRoot] = useState<WorkspaceSnapshot['roots'][number] | null>(null)
+    /** The root whose removal confirmation is up, or null when none is. */
+    const [pendingRemove, setPendingRemove] = useState<{ path: string; label: string } | null>(null)
+    /** Whether the removal confirmation's acknowledgement box has been ticked. */
+    const [removeAcknowledged, setRemoveAcknowledged] = useState(false)
+
+    /**
+     * The context menu's one action: ask the HOST for a folder — its own native
+     * chooser returns an absolute path the page could never learn on its own —
+     * then let the host append it to the manifest this session already activated.
+     * The client never names the manifest, and cancelling the chooser is not an
+     * error: it just closes.
+     */
+    const addFolder = useCallback((access: OctopusAccess): void => {
+      setMenuAt(null)
+      if (sessionId === undefined || sessionId === '') return
+      const chooser = ctx.get('uiWorkspace') as UiWorkspaceFace | undefined
+      if (chooser === undefined) {
+        setError(t('folderAddUnavailable'))
+        return
+      }
+      const target: SessionScope = { sessionId, ...(cwd !== undefined && cwd !== '' ? { cwd } : {}) }
+      setPicking(true)
+      setError(null)
+      setNotice(t('folderPicking'))
+      void chooser.pickDirectory()
+        .then(async (picked) => {
+          if (picked === null) {
+            setPicking(false)
+            setNotice(null)
+            return
+          }
+          const result = await api.workspaceAddFolder(target, picked, access)
+          // The host re-activated the edited manifest, so ITS snapshot — never a
+          // local guess about what the file now says — is what the list renders.
+          setWorkspace(result.workspace)
+          setPicking(false)
+          setNotice(result.added
+            ? t('folderAdded', { label: result.label })
+            : t('folderAlready', { label: result.label }))
+        })
+        .catch((failure: unknown) => {
+          setPicking(false)
+          setNotice(null)
+          setError(t('folderAddFailed', { message: messageOf(failure) }))
+        })
+    }, [sessionId, cwd])
+
+    /**
+     * The padlock's action: flip one DECLARED root between read-only and
+     * read-write. The host finds that root's manifest entry itself and rewrites
+     * only its `access`, then re-activates the space with the original
+     * `activatedAt` — so the row's marker, the write fence and the violation
+     * floor all follow the file rather than a local guess.
+     */
+    const toggleAccess = useCallback((root: WorkspaceSnapshot['roots'][number]): void => {
+      if (sessionId === undefined || sessionId === '') return
+      const access: OctopusAccess = root.access === 'readOnly' ? 'readWrite' : 'readOnly'
+      const target: SessionScope = { sessionId, ...(cwd !== undefined && cwd !== '' ? { cwd } : {}) }
+      setAccessPath(root.path)
+      setError(null)
+      setNotice(null)
+      void api.workspaceSetFolderAccess(target, root.path, access)
+        .then((result) => {
+          setWorkspace(result.workspace)
+          setAccessPath(null)
+          // Both keys stay literal calls: the dead-key scan in
+          // `tests/client-tab.spec.ts` matches `t('...')` by text, so a key
+          // chosen inside an expression would look unreferenced.
+          setNotice(access === 'readOnly'
+            ? t('folderLocked', { label: result.label })
+            : t('folderUnlocked', { label: result.label }))
+        })
+        .catch((failure: unknown) => {
+          setAccessPath(null)
+          setError(t('folderAccessFailed', { message: messageOf(failure) }))
+        })
+    }, [sessionId, cwd])
+
+    /**
+     * The row menu's destructive action: delete one DECLARED root's declaration.
+     * The folder on disk is never touched — the confirmation says so before this
+     * runs — and the host keeps a backup and re-activates the space with the
+     * original `activatedAt`, so the answer's snapshot is what the list renders.
+     */
+    const removeFolder = useCallback((root: { path: string; label: string }): void => {
+      if (sessionId === undefined || sessionId === '') return
+      const target: SessionScope = { sessionId, ...(cwd !== undefined && cwd !== '' ? { cwd } : {}) }
+      setAccessPath(root.path)
+      setError(null)
+      setNotice(null)
+      void api.workspaceRemoveFolder(target, root.path)
+        .then((result) => {
+          setWorkspace(result.workspace)
+          setAccessPath(null)
+          // Removing the entry that WAS the session cwd makes the policy append
+          // its implicit read-write root again. Say that out loud rather than
+          // letting the operator believe the folder left the space. The compare
+          // is case-insensitive on purpose: it only chooses which of two notices
+          // to show (a display heuristic, never a decision), and the paths can
+          // legitimately differ in case when the entry was declared that way.
+          const implicit = result.workspace.roots.some(candidate =>
+            !candidate.listed && candidate.path.toLowerCase() === root.path.toLowerCase())
+          setNotice(implicit
+            ? t('folderRemovedImplicit', { label: result.label })
+            : t('folderRemoved', { label: result.label }))
+        })
+        .catch((failure: unknown) => {
+          setAccessPath(null)
+          setError(t('folderRemoveFailed', { message: messageOf(failure) }))
+        })
+    }, [sessionId, cwd])
+
+    /**
+     * Right-click handling for a ROW: the row's own menu replaces the browser's
+     * page menu. The body handler below never competes with it — its
+     * `target === currentTarget` guard cannot hold for a click that started
+     * inside a row — so the row's menu is the only one that opens.
+     */
+    const openRowMenu = useCallback((
+      root: WorkspaceSnapshot['roots'][number],
+      event: ReactMouseEvent<HTMLDivElement>,
+    ): void => {
+      event.preventDefault()
+      setMenuRoot(root)
+      setMenuAt({ x: event.clientX, y: event.clientY })
+    }, [])
+
+    /**
+     * Right-click handling for the body's BLANK area: the add-folder menu. It
+     * clears any row menu, because the two share one card and one anchor.
+     */
+    const openBodyMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>): void => {
+      if (event.target !== event.currentTarget) return
+      event.preventDefault()
+      setMenuRoot(null)
+      setMenuAt({ x: event.clientX, y: event.clientY })
+    }, [])
+
     const scan = useCallback((sessionScope: SessionScope): void => {
       const isCurrent = (): boolean => sessionIdRef.current === sessionScope.sessionId
       setScanning(true)
@@ -663,20 +813,70 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
         )}
         {notice !== null && <div style={{ ...noteStyle, flex: 'none' }}>{notice}</div>}
         {error !== null && <div style={{ ...noteStyle, flex: 'none' }}>{error}</div>}
-        <div style={bodyStyle}>
+        <div style={bodyStyle} onContextMenu={openBodyMenu}>
+          <PointerContextMenu
+            at={menuAt}
+            entries={menuRoot === null
+              ? buildBodyMenu({ picking })
+              : buildRowMenu({
+                listed: menuRoot.listed,
+                readOnly: menuRoot.access === 'readOnly',
+                busy: accessPath === menuRoot.path,
+              })}
+            onSelect={(id) => {
+              // The body's menu and a row's menu share this one card, so both id
+              // spaces are consulted; an id neither owns does nothing.
+              const access = accessOfMenuId(id)
+              const root = menuRoot
+              setMenuAt(null)
+              setMenuRoot(null)
+              if (access !== undefined) {
+                addFolder(access)
+                return
+              }
+              const intent = rowMenuIntent(id)
+              if (intent === undefined || root === null) return
+              if (intent === 'toggle') {
+                toggleAccess(root)
+                return
+              }
+              // Removing is the one action that asks first: the platform's own
+              // confirmation keeps its primary button disabled until the
+              // acknowledgement box is ticked, which is where "only the
+              // declaration goes, not the folder" gets said.
+              setRemoveAcknowledged(false)
+              setPendingRemove({ path: root.path, label: root.label })
+            }}
+            onClose={() => { setMenuAt(null); setMenuRoot(null) }}
+          />
           {workspace.roots.map((root) => {
             const open = expanded.has(root.path)
             const readOnly = root.access === 'readOnly'
             const missing = root.exists === false
             const permission = readOnly ? t('workspaceFolderReadOnly') : root.path
+            // Literal calls only, for the same dead-key reason as above.
+            const permissionLabel = readOnly ? t('workspaceFolderReadOnly') : t('workspaceFolderReadWrite')
+            const toggleProps = root.listed
+              ? {
+                toggle: {
+                  title: readOnly ? t('folderUnlockAction') : t('folderLockAction'),
+                  busy: accessPath === root.path,
+                  onClick: () => { toggleAccess(root) },
+                },
+              }
+              : { fixedTitle: t('folderAccessImplicit') }
             return (
               <div key={root.path}>
-                <div style={rowWrapperStyle(activeRow === root.path)} {...rowActivity(root.path)}>
+                <div
+                  style={rowWrapperStyle(activeRow === root.path)}
+                  {...rowActivity(root.path)}
+                  onContextMenu={(event) => { openRowMenu(root, event) }}
+                >
                   <button
                     type="button"
                     title={missing ? `${permission} — ${t('workspaceMissingFolder')}` : permission}
                     aria-expanded={open}
-                    style={rowStyle(0, { opacity: missing ? 0.5 : 1 })}
+                    style={rowStyle(0, { opacity: missing ? 0.5 : 1, flex: 'none' })}
                     onClick={() => { toggle(root.path) }}
                   >
                     <span style={dirIconStyle}>
@@ -684,11 +884,25 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
                     </span>
                     <span style={nameStyle}>{root.label}</span>
                     {missing && <span style={{ fontSize: 11, opacity: 0.55 }}>{t('workspaceMissingFolder')}</span>}
-                    {/* The padlock stays beside the name (a permission marker);
-                        the path badge is the row's LAST element and is rendered
-                        outside this button, after the desktop action's slot. */}
-                    <RootPermissionMarker readOnly={readOnly} label={t('workspaceFolderReadOnly')} />
                   </button>
+                  {/* The padlock is its OWN control, so it cannot live inside the
+                      row button (a button may not nest, and every click would also
+                      expand the folder). It sits right after the name, where the
+                      row's own 6px gap keeps the spacing the old marker had. */}
+                  <RootPermissionToggle
+                    readOnly={readOnly}
+                    label={permissionLabel}
+                    {...toggleProps}
+                  />
+                  {/* An empty shim so that clicking the blank area to the RIGHT of
+                      the padlock still expands the folder, the way it did while the
+                      row button filled the row. Decorative: the real control keeps
+                      its own name and expanded state. */}
+                  <span
+                    aria-hidden="true"
+                    onClick={() => { toggle(root.path) }}
+                    style={{ flex: 'auto', alignSelf: 'stretch', cursor: 'pointer' }}
+                  />
                   {/* A root that does not exist has nothing to open, and the host
                       would refuse it: the row offers no desktop action. */}
                   {canReveal && !missing && (
@@ -706,6 +920,28 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
             )
           })}
         </div>
+        {/* Removing a folder edits the MANIFEST, never the disk, so this
+            confirmation exists to say that out loud — not because the change is
+            hard to undo (the sidecar backup is right there). */}
+        <RiskConfirmation
+          open={pendingRemove !== null}
+          title={t('removeFolderTitle')}
+          description={t('removeFolderDescription', { label: pendingRemove?.label ?? '' })}
+          acknowledgeLabel={t('removeFolderAcknowledge')}
+          cancelLabel={t('removeFolderCancel')}
+          closeLabel={t('removeFolderClose')}
+          confirmLabel={t('removeFolderConfirm')}
+          acknowledged={removeAcknowledged}
+          disabled={accessPath !== null}
+          onAcknowledgedChange={setRemoveAcknowledged}
+          onCancel={() => { setPendingRemove(null); setRemoveAcknowledged(false) }}
+          onConfirm={() => {
+            const root = pendingRemove
+            setPendingRemove(null)
+            setRemoveAcknowledged(false)
+            if (root !== null) removeFolder(root)
+          }}
+        />
       </div>
     )
   }

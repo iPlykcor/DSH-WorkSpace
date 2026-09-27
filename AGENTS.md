@@ -33,7 +33,7 @@ pnpm lint
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke.ps1
 ```
 
-`scripts/smoke.ps1` 做的事：打包 → 装进**全新临时** `DSH_HOME` → 起真实宿主（`--port 0`）→ 写 BOM-less 测试清单 → 打 27 项 HTTP 探针 → 按**监听端口**回收宿主进程并删临时目录。退出码 0 = 全过；它**绝不触碰用户真实的 `~/.dsh`**。
+`scripts/smoke.ps1` 做的事：打包 → 装进**全新临时** `DSH_HOME` → 起真实宿主（`--port 0`）→ 写 BOM-less 测试清单 → 打一组 HTTP 探针（含 `workspace.addFolder` 与 `workspace.setFolderAccess` 的每一个分支：无激活 403、非目录／缺路径／未知权限 400、不是本作业区的根／未声明的隐含根 400、真实追加 200 + 相对路径落盘 + 侧车备份 + 幂等 `added:false` + 重新激活后快照已含新根、权限改写 200 + 侧车备份 + 快照里的权限已翻转 + 幂等 `changed:false` 不写盘、移出 200 + 侧车备份 + 快照里那条已消失 + 再次移出 400）→ 按**监听端口**回收宿主进程并删临时目录。退出码 0 = 全过；它**绝不触碰用户真实的 `~/.dsh`**。
 
 手工等价步骤（脚本不可用时）：
 
@@ -57,12 +57,16 @@ dsh web --port 0 --no-open                            # 用 0 端口，别占用
 
 判据：脚本全 PASS。等价的手工判据是：宿主走到就绪行、日志无 loader / inject / `duplicate prefix route` 失败、各路由状态码符合预期、冷会话不 500。**客户端渲染需要浏览器自动化**（`@playwright/test` 已随工作台移除），没有它就不要声称验证了页签渲染——`tests/client-tab.spec.ts` 只锁注册与文案，不锁渲染。
 
-> **客户端启动事故没有任何自动门禁能拦住它。** 实测（0.3.1）：把 `shortcuts`／`sidebarRight` 加进客户端入口的**插件级 `inject` 数组**之后，**DSH 整个起不来**——宿主 HTTP 冒烟 27 项全 PASS 也照样发生（它只探宿主，不看浏览器）；而且 `git reset --hard` 也救不回来，因为**插件已经装进 profile**，只能先把插件摘掉。因此两条硬规矩：(1) 客户端入口的 `inject` 数组由 `tests/client-tab.spec.ts` 用**精确相等**断言写死，动它之前必须先有启动验证手段；(2) 任何时候都能用恢复脚本把插件从 profile 里摘掉，它**不依赖 dsh 能否启动**（纯文件操作，不重启宿主）：
+> **客户端启动事故没有任何自动门禁能拦住它。** 实测（0.3.1）：把 `shortcuts`／`sidebarRight` 加进客户端入口的**插件级 `inject` 数组**之后，**DSH 整个起不来**——宿主 HTTP 冒烟全 PASS 也照样发生（它只探宿主，不看浏览器）；而且 `git reset --hard` 也救不回来，因为**插件已经装进 profile**，只能先把插件摘掉。因此两条硬规矩：(1) 客户端入口的 `inject` 数组由 `tests/client-tab.spec.ts` 用**精确相等**断言写死，动它之前必须先有启动验证手段；(2) 任何时候都能用恢复脚本把插件从 profile 里摘掉，它**不依赖 dsh 能否启动**（纯文件操作，不重启宿主）：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\uninstall-plugin.ps1 -DryRun   # 先看计划
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\uninstall-plugin.ps1 -Yes      # 真摘
 ```
+
+> 插件**改动过的清单**（§3.13）不在 profile 里，卸载脚本不会也不能替用户回滚它们：脚本的最后会打印这条提示，告诉用户备份在哪、怎么还原。加了新的写盘点（比如又写别的文件）时，必须同步这句话。
+>
+> **挂载项在 profile 的 `package.json` 里，有两个地方**（实测 `dsh plugin add` 写入）：`dependencies["dsh-octopus-operation-space"]` **和** `dsh.profile.bundles[]`。只删前者会让 profile 继续要求加载一个已经不在磁盘上的包——下次启动直接失败，正是这个脚本要防的事故。`-DryRun` + 一次性 `DSH_HOME` 演练（`deploy.ps1 -DshHome <临时目录> -SkipTests -Yes` 后接 `uninstall-plugin.ps1 -DshHome <同一目录> -Yes`）是这两处的门禁，改脚本必须重跑。
 
 **一键部署（真实 profile）**：`scripts/deploy.ps1` 与冒烟互补——冒烟用一次性临时 `DSH_HOME`，部署脚本装进**真实** profile：四道门禁 → 构建打包 → 备份 profile 的 `package.json` 到 `octopus-deploy-backups\<时间戳>\` → **先 `remove` 再 `add`** → 校验依赖与插件清单，并把已安装的 `lib\index.js` / `lib\client.js` 与本次构建逐个做 SHA256 比对 → 打印重启与回滚命令。之所以要先移除：**同版本同路径的 `add` 是 pnpm 的空操作**，实测在真实 profile 上它报成功，而 `lib\index.js` 的 mtime 与内容都还是旧的（没有新路由），只有 SHA256 比对才暴露出来。它**绝不自动重启** `dsh web`：安装只在下次启动生效，而杀掉宿主会丢掉用户正在做的事。
 
@@ -85,9 +89,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -DshHome 
 2. **打开文件只能委托**：`ctx.sidebarRight.openResource(address, { params: { line? } })`。内置文档预览是**唯一**认领文件地址的页类型，其 `canOpen` 是 `parseFileAddress(a)?.scope === 'session'`——**`absolute` scope 无人认领，调用会抛错**。因此地址必须用 `session` scope 携带绝对路径（清单声明的会话根之外目录同理）。
 3. **没有可嵌入的查看器**：`renderSlot` 只发给在自己 `register` 里声明了 `children` 的注册者，第三方无法把内置查看器挂进自己的页签。要么委托打开，要么自己实现渲染——本包选前者。
 4. **`ctx.remote.session.openWorkspacePath` 不是查看器**：它交接给操作系统的默认程序 / 文件管理器，DSH 界面里什么都不渲染。本包不使用它。
-5. **图标来自 `@deepseek-ai/dsh-client-ui-primitives`**（平台模块表内）。其导出按**粗细**命名（`…Regular` / `…Medium`），不是尺寸后缀——0.1.2 时代的 `IconFolderOpen16` 在 0.1.7 已不存在。**平台没有任何锁形图标**：279 个导出里 `Lock` 只匹配到 `Clock`。因此只读小锁是内联在 `src/client/root-markers.tsx` 里的 codicon `lock` 路径（16 网格，CC-BY-4.0，署名随源码与产物一起交付）——它原本来自 `react-icons/vsc`，而那是**运行时依赖**，随本包收敛为零运行时依赖一起被移除，当时临时换成的 `PermissionIconReadOnlyRegular`（**盾牌+对勾**）/ `PermissionIconFullAccessRegular`（**盾牌+感叹号**）读起来是两种不同的告警而不是同一种权限状态，已弃用。路径标记用 `IconInfoOutlineRegular`（圆圈 i）：它是**标注**而不是告警——平台把圆圈感叹号（Warning）和圆角三角（WarningTriangle）都留给真正的故障语汇，而这一行什么都没出错，只是有个值得一读的绝对路径。
+5. **图标来自 `@deepseek-ai/dsh-client-ui-primitives`**（平台模块表内）。其导出按**粗细**命名（`…Regular` / `…Medium`），不是尺寸后缀——0.1.2 时代的 `IconFolderOpen16` 在 0.1.7 已不存在。**平台没有任何锁形图标**：279 个导出里 `Lock` 只匹配到 `Clock`。因此只读小锁是内联在 `src/client/root-markers.tsx` 里的 codicon `lock` 路径（16 网格，CC-BY-4.0，署名随源码与产物一起交付），读写的开锁标记是**同一套 codicon 的 `unlock` 路径**（同网格、同 even-odd 写法、同一份署名与来源，两个图标一起署名）——它原本来自 `react-icons/vsc`，而那是**运行时依赖**，随本包收敛为零运行时依赖一起被移除，当时临时换成的 `PermissionIconReadOnlyRegular`（**盾牌+对勾**）/ `PermissionIconFullAccessRegular`（**盾牌+感叹号**）读起来是两种不同的告警而不是同一种权限状态，已弃用。路径标记用 `IconInfoOutlineRegular`（圆圈 i）：它是**标注**而不是告警——平台把圆圈感叹号（Warning）和圆角三角（WarningTriangle）都留给真正的故障语汇，而这一行什么都没出错，只是有个值得一读的绝对路径。
 6. **i18n 命名空间 `octopus`**：`zh` 是键的唯一事实来源，`en` 由 `Record<CopyKey, string>` 在编译期强制对齐（漏键即类型错误）。没有第三语言覆盖层。
-7. **悬停气泡用平台 `Tooltip`，它不需要 Provider**：`TooltipSuppression` 的内联默认值就是 `createContext(null)`，19 个内置插件都直接锚定它（声明 Provider 的插件数为 0）。两个必须记住的点：(1) **`portal: true` 是必需的**——根目录列表在 `overflow: auto` 容器里滚动，非 portal 的气泡会被该容器裁掉；(2) `label` 只接受字符串或返回字符串的函数，而 Windows 路径没有断行点，所以只在**展示用**的 label 里按分隔符插入零宽空格以便折行——行的 `title` 与任何会被当作路径复用的字符串都保持原样。改客户端图标或气泡后，`tests/root-markers.spec.tsx` 会先于浏览器渲染亮红。**行的排布也是契约**：只读小锁紧贴名字（是否绘制由 `RootPermissionMarker` 决定，读写根一律不画），圆圈 i（ⓘ）是行的**最后一个**元素——它排在桌面动作的固定槽位**之后**（那个动作必须是真 `<button>`，不能嵌进行按钮里），槽位无论动作是否显示都占宽，所以悬停时 ⓘ 不会左右跳；又因为它落在行按钮**之外**，点它不会误触目录展开。**行尾这一段的间距由行容器统一承担**：容器 `gap: 6px` + `padding-right: 10px`（`box-sizing: border-box`，否则整行会溢出 10px），行按钮自己**不带**右内边距，于是"桌面动作 + ⓘ"这一对和内置行的内容一样收在距行右缘 10px 处；标记本身（小锁、ⓘ）**一律不带自己的外边距**，间隔只由这一层负责——小锁曾经因为自带 `margin-left: 6` 而与名字相距 12px。
+7. **悬停气泡用平台 `Tooltip`，它不需要 Provider**：`TooltipSuppression` 的内联默认值就是 `createContext(null)`，19 个内置插件都直接锚定它（声明 Provider 的插件数为 0）。两个必须记住的点：(1) **`portal: true` 是必需的**——根目录列表在 `overflow: auto` 容器里滚动，非 portal 的气泡会被该容器裁掉；(2) `label` 只接受字符串或返回字符串的函数，而 Windows 路径没有断行点，所以只在**展示用**的 label 里按分隔符插入零宽空格以便折行——行的 `title` 与任何会被当作路径复用的字符串都保持原样。改客户端图标或气泡后，`tests/root-markers.spec.tsx` 会先于浏览器渲染亮红。**行的排布也是契约**：小锁（`RootPermissionToggle`）是**行按钮之外的一个真 `<button>`**，紧贴名字——按钮不能嵌套（非法 HTML，且行按钮的点击是展开目录），所以它不能像早期那样待在行按钮内部；行按钮因此改成**内容宽**（`flex: none`），紧随其后放一个空的 `flex: auto` shim，把"点行右侧空白仍然展开目录"这一行为保回来（shim 是 `aria-hidden` 装饰层，真控件的名字与 `aria-expanded` 不变）。**两种权限都画标记**（由 `Padlock` 的 `open` 决定：只读=闭合锁、读写=开锁）——早先"读写根不留任何权限标识"的决定已被"小锁同时就是切换开关"取代，那条旧不变量别再改回去。圆圈 i（ⓘ）是行的**最后一个**元素——它排在桌面动作的固定槽位**之后**（那个动作必须是真 `<button>`，不能嵌进行按钮里），槽位无论动作是否显示都占宽，所以悬停时 ⓘ 不会左右跳；又因为它落在行按钮**之外**，点它不会误触目录展开。**行尾这一段的间距由行容器统一承担**：容器 `gap: 6px` + `padding-right: 10px`（`box-sizing: border-box`，否则整行会溢出 10px），行按钮自己**不带**右内边距，于是"桌面动作 + ⓘ"这一对和内置行的内容一样收在距行右缘 10px 处；标记本身（小锁、ⓘ）**一律不带自己的外边距**，间隔只由这一层负责——小锁曾经因为自带 `margin-left: 6` 而与名字相距 12px。
 8. **桌面交接是我们自己做的，而且必须无 shell**：内置 open-in-app 的目录入口绑在**会话 cwd** 上，Windows 上落到 `explorer.exe "file:///…"`，而且 runner 写死 `windowsHide: true`——**实测窗口会被建出来但不可见**（同一 URL：`windowsHide:true` → `IsWindowVisible=False`，`false` → `True`），所以它返回 200、日志干净，用户却什么也看不到。作业区恰恰是 cwd 之外的目录，所以 `workspace.reveal` 自己 spawn：**绝不拼命令字符串**（永远传 argv）、**`windowsHide: false` + `detached`**。Windows 的 argv 只认**纯宿主路径**：目录 → `explorer.exe <path>`；文件 → `/select,<path>` 放**同一个** argv 元素。两条实测禁区——**file URL 形式**（`/select,file:///…`，DSH 自己的写法）在中文路径下会被 Explorer 丢去打开**桌面**；**给路径加引号**会打开**文档**且什么都不选中。路径里含**英文逗号**时无法选中（`/select,` 按逗号切分参数），此时降级为打开**所在目录**。Explorer 的退出码 1 = 已交棒给桌面进程（与 `dsh-native-command` 同语义），超时同样算成功并 `unref`（那说明 explorer.exe 自己变成了 shell）。围栏复用**读围栏** `ensureWsReadTarget`（realpath + 声明根包含判定），所以符号链接也偷不出作业区。**测试与冒烟绝不触发它**：成功分支会在跑测试的机器上弹真实窗口——argv 由 `tests/native-reveal.spec.ts` 锁定。人工验证必须同时查**可见性与选中项**：`Shell.Application.Windows()` 会列出**不可见**的窗口登记项（实测 25 条里只有 3 条可见），只数窗口会得出完全错误的结论。
 9. **工具注册：`inject` 里必须写 `'tools'`，且 `output { schema, render }` 是强制的**：服务名是 `ctx.tools`（`ToolRuntime`，dsh-tools），`register(definition)` 返回注销器，`ctx.tools` 由 base bundle 挂载。handler 的**第二个**参数才是调用上下文，会话 id 是 `exec.agent?.session.id`（`agent` 可缺——非 agent 调用者没有它，必须自己判空，否则就是替别的会话作答）。**没有 `output` 的定义根本注册不上**（注册期直接 `TypeError`），而 `execute` 的返回值又要被 `output.schema` 校验，最后 `output.render(args, value)` 才把它变成模型看到的文本——三者缺一不可。`parameters` 用原生 JSON Schema 即可：本包不需要 `defineTool` 的 DSL，于是也没有新增运行时 import（零依赖不变）。`octopus_space` 是「清单标签 → 绝对路径」唯一的模型出口，语义改动时它属于四个同步点之一。
 10. **`dsh.plugin.json` 的 `contributes` 目前没有任何消费者**：对已安装的整棵 `@deepseek-ai` 树 grep `contributes` 只命中无关的英文注释，且**没有任何 DSH 包自带 `dsh.plugin.json`**，所以 `tools` / `skills` 两个数组保持为空是现状（技能的注册同样不在里面）。别照着自己的想象往里面填 schema。
@@ -108,6 +112,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -DshHome 
 
     `resolve` 必须用 `ctx.sidebarRight.commandTarget(input.target)` 先捕获"用户此刻所在的那块侧边栏面板"，再 `openTabFromTarget(TAB_KIND, target)`：多个会话同时挂载时凭猜就会开错地方；捕获不到（没有挂载的会话）是带理由的拒绝，不是猜。
 
+13. **右键空白处加文件夹，右键行移出或改权限，点小锁也能改权限**：面板空白处的 `onContextMenu`（先 `preventDefault`，且只在 `event.target === event.currentTarget` 时接管——落在根目录行上的那一次由行自己的 handler 接管，两个 handler 因此不会互相抢）打开平台 `Menu`，用 `portal` + `getAnchorRect` 把 1×1 的矩形当锚点，于是卡片出现在右键点，而不是某个触发按钮上（平台文档正是为这种"自持触发点"提供该属性）。**菜单只有一项，且写死只读**：加入文件夹是授权发生的那一刻，所以不再给"再加一个读写"的第二项（早期两项的版本已收敛），升级改成行上小锁的第二个动作。
+
+    **小锁就是第二个写盘点**，走新路由 `workspace.setFolderAccess`，与加入共用一个事务：客户端只发 `{ path, access }`（`path` 取**快照里已有的** `root.path`，不是用户输入的字符串），宿主在该会话已激活的清单里找**解析后路径一致**的条目——用的是策略建根时的同一个 `resolveFolderPath(raw, baseDir)`，所以清单里的相对路径也能配上；只认**已声明**的根（`root.listed === false` 的隐含 cwd 根一律 400，因为清单里没有条目可以持久化它），找不到条目或多个候选都是明确报错、绝不猜。改写规则：对象条目已有 `"access"` 就**只换那个字符串**，没有就在最后一个成员之后补 `, "access": …`（同样遵守"逗号在有效内容之后"的规则，尾随注释不被吞），**字符串简写条目会被改写成对象形式**并原样保留那个字符串 token；改完的权限永远是**显式**值。权限已经是该级别时返回 `changed:false` 且**一个字节都不写**（也就不留备份）。写完仍用**原 `activatedAt`** 重新激活，所以行上的标记、写围栏与违规扫描的下界同时跟着文件走。
+
+    **选目录不能自己弹窗**：页面拿不到真实路径（`showDirectoryPicker()` 只给 `FileSystemDirectoryHandle`），所以只能走宿主——`ctx.get('uiWorkspace')?.pickDirectory()`（内置 `dsh-client-ui-workspace` 的封装，宿主端能力域是 `DirectoryPickerNativeCapability.pick`，返回**绝对路径**或 `null`=用户取消；`directory-picker/unavailable` 表示当前部署没有选择器，要原样报给用户，不能静默）。**服务名一律不进 `inject` 数组**（§3.1 同规矩）；它的结构镜像在 `context-types.ts` 的 `UiWorkspaceFace`。
+
+    **拿到路径后只发一个字段给宿主**，其余全由宿主决定：新路由 `workspace.addFolder` 只收 `{ path, access }`，清单路径取自 `wsReg.get(sessionId).manifestPath`（客户端**无法**指定要改哪份清单），无激活作业区一律 403，目标必须 `stat.isDirectory()`，已经在作业区内的目录回 `added:false` 而不是重复追写。写入走 `src/manifest-edit.ts`：保注释的文本扫描（插入点是**最后一个有效条目之后**，所以尾随 `// 注释` 不会被逗号吞掉）→ 时间戳侧车备份（后缀 `.octopus-backup`，刻意不是认领的清单扩展名，否则会被 cwd 发现逻辑当成候选）→ 写临时文件再原子替换 → 用产品自己的 `parseWorkspaceManifest` 回读校验，任何一步失败都还原原文件并清掉自己的备份与临时文件。写完用**原来的 `activatedAt`** 重新激活（违规扫描以它为时间下界，改清单绝不能抬高这条线），于是新根立刻出现在返回的快照里，不需要重启。权限**显式写死**：只读那一项写 `"access": "readOnly"`，否则清单里 `defaultAccess: "readWrite"` 会把一次只读选择悄悄升级成可写根。
+
+    **行右键菜单是第三个入口**（内容在 `src/client/row-menu.tsx`，纯函数 `buildRowMenu` / `rowMenuIntent`；卡片仍复用空白处那张 `PointerContextMenu`，因为只有行内容不同）：`移出作业区`（平台 `MenuItem` 的 `danger` 行，破坏性着色）与`改为只读 / 改为读写`（与行上小锁**同一条路由**，所以两条入口绝不会让行状态分叉）。`path` 依旧取快照里已有的 `root.path`。隐含 cwd 根（`listed === false`）两项**禁用而不是隐藏**，并追加一行 `MenuLabel` 说明"清单里没有它的条目"——菜单静悄悄少几行会被读成 bug。移出**不用**浏览器原生 `confirm`，而用平台自带的 `RiskConfirmation`（`acknowledged` 勾选前确认按钮不可用；测试桩 `tests/stubs/dsh-client-ui-primitives.ts` 里已同步补上这个零件），因为"移出"最容易被误解成删文件夹，那句"只删清单里的声明、磁盘不动"必须明说。
+
+    **移除走 `workspace.removeFolder`**，与另外两个入口共用同一个事务、同一条围栏：只认**已声明**的根（隐含 cwd 根 400）；删哪一条由宿主用与建根相同的 `resolveFolderPath` 反查，无匹配或多匹配都是明确报错、绝不猜。文本手术要连同**恰好一个分隔逗号**一起删（优先删后面那个，没有就删前面那个），所以结果里既不会出现 `,,` 也不会留下悬空逗号；注释与 CRLF 照旧保留。**三种情况都在动任何字节之前就拒绝**：无匹配、匹配到多条、以及"这是清单里唯一一条"——`workspace-schema.ts:253` 要求 `folders` **非空**，所以"删成 `[]`"既不可能也不该靠回读校验兜底。三个拒绝都**不开事务**，因此不留备份、不留临时文件，原文件逐字节不动。**反直觉但必须照实说的一条**：被删掉的那条如果正好解析成会话 cwd，`workspace-policy.ts` 的 `if (!seen.has(realCwd))` 会立刻把隐含的 `readWrite` cwd 根补回来——所以客户端按返回快照里同一 path 的 `listed === false` 分两句提示（`folderRemoved` / `folderRemovedImplicit`），不是猜的。移除同样用**原 `activatedAt`** 重新激活。
+
+    这也是本包**唯一**写用户磁盘的地方（三个入口：右键空白处加入、点小锁改权限、行右键移出），所以 `src/index.ts` 文件头对"只读是结构性的"已改成精确表述：改的是**策略文件**（清单），不是声明范围内的内容，且只能由界面上的一次授权动作触发。测试：`tests/manifest-edit.spec.ts`（尾随注释、空数组、CRLF、无 `folders` 时拒绝、回读失败必须还原且不留残留，以及改写权限、删除条目两组）、`tests/body-menu.spec.tsx`（只有一项、飞行中禁用而非隐藏、退役的读写 id 不再映射）、`tests/row-menu.spec.tsx`（两项、danger、权限行说的是目标级别、隐含根禁用且带说明）、`tests/root-markers.spec.tsx`（两种状态、按钮与不可点两种形态）、`tests/host-routes.spec.ts` 与冒烟里各自的探针。
+
 ---
 
 ## 4. 开发规则速查
@@ -125,16 +143,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -DshHome 
 - **用户文档**：[README.md](README.md)（安装、清单格式、权限模型、限制）。
 - **设计史**：[docs/plans/](docs/plans/)。已移除功能的完整历史见 git tag `archive/sidebar-workbench`。
 - **关键测试守护**：
-  - `tests/host-routes.spec.ts` —— 唯一宿主路由的端到端行为（信任围栏、方法分派、信封、作业区生命周期、根围栏、只读越权报告与还原、冷会话路径、cwd 清单发现、桌面交接的三种拒绝）；
+  - `tests/host-routes.spec.ts` —— 唯一宿主路由的端到端行为（信任围栏、方法分派、信封、作业区生命周期、根围栏、只读越权报告与还原、冷会话路径、cwd 清单发现、桌面交接的三种拒绝，以及三个写盘路由 `addFolder` / `setFolderAccess` / `removeFolder` 的每一个分支，含"被移出的那条正好是 cwd 时隐含读写根会补回来"与"activatedAt 不因改清单而移动"）；
   - `tests/native-reveal.spec.ts` —— 桌面交接的 argv 构造（`/select,` 与目标必须是**一个** argv 元素、目标里不得出现引号或 file URL、含逗号的文件名降级为打开所在目录、路径永不被拼进命令字符串、三个平台各一条），**刻意不启动任何进程**；成功分支会在跑测试的机器上弹真实窗口，所以按设计只人工验证，而且要查**可见性与选中项**而不是窗口数量；
   - `tests/tree-metrics.spec.ts` —— 与内置文件页的**度量契约**：行盒、间距、18px 缩进、页头 38px、工具按钮、note 与悬停令牌逐项钉死（内置一改就红）；**刻意不断言渲染**，像素级一致只能人眼复核；
   - `tests/entry-order.spec.ts` —— 与内置一致的行序（目录优先 + 自然序、大小写不敏感、不改动入参）；
-  - `tests/client-tab.spec.ts` —— 页签三重注册的身份一致性（type `id` 与两个座位 `key`）＋ 文案零死键（`multiroot-tab.tsx` 与 `shortcut.ts` 一起扫）＋ **`inject` 数组的精确相等断言**（防止再把服务声明进去）＋ 开始页卡片（`commandId` 与命令 id 的等式、两语说明）＋ 快捷键命令（按 profile 的默认绑定、捕获不到面板时的拒绝、每次注册都由 effect 拥有）；
-  - `tests/root-markers.spec.tsx` —— 根行标记的渲染契约：只读行画的是**真的锁形几何**（两条子路径）而不是空占位、读写行**不留任何权限标识**（这条由 `RootPermissionMarker` 单独承载，因为它曾经整个消失过一次）、圆圈 i（`RootTrailingBadge`，行的最后一个元素、不伸缩）把绝对路径原样交给气泡（剥离零宽空格后必须逐字节相等）；
+  - `tests/client-tab.spec.ts` —— 页签三重注册的身份一致性（type `id` 与两个座位 `key`）＋ 文案零死键（`multiroot-tab.tsx`、`shortcut.ts`、`body-menu.tsx` 与 `row-menu.tsx` 一起扫；扫描**按文本**匹配 `t('key')`，所以键名必须写成字面量，塞进三元表达式里会被判成死键）＋ **`inject` 数组的精确相等断言**（防止再把服务声明进去）＋ 开始页卡片（`commandId` 与命令 id 的等式、两语说明）＋ 快捷键命令（按 profile 的默认绑定、捕获不到面板时的拒绝、每次注册都由 effect 拥有）；
+  - `tests/root-markers.spec.tsx` —— 根行标记的渲染契约：**两种状态都画锁**且画的是**真的锁形几何**（两条子路径、闭合与打开用的是各自的 codicon 路径数据，断言到 `d` 的开头），小锁在声明的根上是真 `<button>`（带状态名与动作气泡、飞行中 `disabled` 而不是消失）、在隐含 cwd 根上**没有按钮**而只有固定说明气泡，圆圈 i（`RootTrailingBadge`，行的最后一个元素、不伸缩）把绝对路径原样交给气泡（剥离零宽空格后必须逐字节相等）；
   - `tests/shortcut-binding.spec.ts` —— 拿**当前安装的 DSH** 全量扫描 `dsh-client-*/lib/client.js` 里的 `"Key<X>"` 裸字符串，证明本插件选的键没有被内置命令占用（没有安装时明确跳过，不假装验证过）；踩坑史见 §3.12；
   - `tests/host-types.spec.ts` —— 手写结构镜像对真实宿主类型的编译期可赋值性（`inspect` 那类漂移的守门人；含 `ShortcutCommand` 镜像：方向只能是"真实命令 → 镜像"，因为真实 `id` 是 branded 字符串，反方向由 `client-tab.spec.ts` 在运行时锁）；
   - `tests/file-address.spec.ts` —— 文件地址对产品解析器的往返（最容易静默失配的一处）；
   - `tests/workspace-schema.spec.ts` —— 清单解析、JSONC、默认值；
+  - `tests/manifest-edit.spec.ts` —— **唯一写盘点**的编辑器：追加后的文本逐字节断言（尾随 `// 注释` 必须留在原行、逗号在条目之后）、空数组就地展开、注释留在空数组里、CRLF 保持、没有 `folders` 时明确拒绝、备份等于原文且不是认领的清单扩展名、回读失败必须**原文件逐字节还原且不留备份/临时文件**；改写权限的一组：已有 `access` 只换值、没有就补成员且注释存活、字符串简写改写成对象形式且 token 原样、已是该级别时 `changed:false` 且不留备份、找不到/匹配多个都报错；删除条目的一组（15 例）：中间条目 / 末条（前一条无尾逗号，以及数组本身带 JSONC 尾逗号——后者会把前一个分隔逗号留成数组的尾逗号，两种都不出现 `,,`）、首条、字符串简写条目（含 `\/` 转义按 JSON 解码）、CRLF、同行注释随条目一起删、对象条目内部的注释与空行随它一起走、单行数组只吃掉自己那一段、无匹配与匹配多条都报错、仅剩一条**写之前就拒绝**（`folders` 必须非空）、以及"追加 → 删除"的逐字节往返；`removeFolderEntryInManifest` 一组（4 例）：写入后目录里只多出侧车备份且它与原文相等、回读失败逐字节还原且无残留、未知条目连文件带目录都不动、仅剩一条的拒绝同样不留任何东西；
+  - `tests/body-menu.spec.tsx` —— 空白处菜单的契约：**只有一项**且映射到 `readOnly`（退役的 `addFolder.readWrite` id 必须仍是 `undefined`，防止它复活）、文案非空、选择器飞行中**禁用而不是隐藏**；它同时证明 `vitest.config.ts` 的 primitives 别名能解析新值导入的 `Menu`；
+  - `tests/row-menu.spec.tsx` —— 行菜单的契约：声明过的根才有两项且移出在前、移出是 `danger` 行而权限行不是、权限行**说的是要切到哪一级**（两个级别的文案必须不同，否则看着像空操作）、飞行中两行禁用而非隐藏、隐含 cwd 根两行禁用并**带一行文字说明**（不能只留一个没人会打开的 tooltip）、只有自己那两个 id 能映射出意图（`addFolder.readOnly` 不许被当成行操作）；
   - `tests/workspace-policy.spec.ts` —— 根解析与读/写基集分类；
   - `tests/workspace-discovery.spec.ts` —— cwd 清单发现（只认已声明扩展名、只扫一层、稳定排序与候选上限、`autoActivate` 与不可解析候选都必须上报而不是被丢弃）；
   - `tests/discovery-decision.spec.ts` —— 自动加载的判定规则（唯一且未 opt-out 才自动应用；多个、opt-out、解析失败一律列出，绝不猜）；

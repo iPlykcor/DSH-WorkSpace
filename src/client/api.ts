@@ -7,6 +7,8 @@
  * request). Failures surface as {@link SidebarApiError} with the wire code.
  */
 
+import type { OctopusAccess } from '../workspace-schema.ts'
+
 /** The route prefix every method hangs under (mirror of `API_PREFIX` in src/index.ts). */
 const API_PREFIX = '/octopus/api'
 
@@ -192,4 +194,35 @@ export const api = {
    */
   workspaceReveal: (scope: SessionScope, path: string) =>
     call<{ ok: true; path: string; kind: 'dir' | 'file' }>('workspace.reveal', scopePayload(scope, { path })),
+  /**
+   * Append one folder (the directory the host's native chooser returned) to the
+   * manifest this session already activated. The client never names the manifest:
+   * the host edits the one it loaded, re-activates it, and answers with the new
+   * snapshot. `added: false` means the folder was already declared.
+   */
+  workspaceAddFolder: (scope: SessionScope, path: string, access: OctopusAccess) =>
+    call<{ workspace: WorkspaceSnapshot; added: boolean; label: string; backup?: string }>(
+      'workspace.addFolder', scopePayload(scope, { path, access }),
+    ),
+  /**
+   * Change one declared root's access level (the padlock on its row). The client
+   * names a path the snapshot already showed it and the level it wants; the host
+   * finds the manifest entry itself. `changed: false` means the entry already
+   * declared exactly that level, in which case nothing was written.
+   */
+  workspaceSetFolderAccess: (scope: SessionScope, path: string, access: OctopusAccess) =>
+    call<{ workspace: WorkspaceSnapshot; changed: boolean; label: string; backup?: string }>(
+      'workspace.setFolderAccess', scopePayload(scope, { path, access }),
+    ),
+  /**
+   * Delete one declared root's entry from the manifest (the row's context menu).
+   * The folder on disk is untouched: the host edits the declaration it already
+   * loaded, re-activates it, and answers with the new snapshot and the backup it
+   * kept. A root the manifest does not declare has no entry to delete and is
+   * refused with `bad-request`.
+   */
+  workspaceRemoveFolder: (scope: SessionScope, path: string) =>
+    call<{ workspace: WorkspaceSnapshot; changed: boolean; label: string; backup?: string }>(
+      'workspace.removeFolder', scopePayload(scope, { path }),
+    ),
 }

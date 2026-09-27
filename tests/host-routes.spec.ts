@@ -19,9 +19,9 @@
  * the model (its handler is then called with a stub run context, which is the
  * only way to assert the one thing the model ever sees).
  */
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type {
   Context,
@@ -36,6 +36,13 @@ import { API_PREFIX, apply } from '../src/index.ts'
 
 /** The one session id the fake store knows; any other id is a cold session. */
 const SESSION = 'sess-routes'
+
+/**
+ * The manifest every case starts from: one declared root written as the string
+ * shorthand, with no access label, so it takes the security default (readOnly)
+ * plus the implicit readWrite cwd root the policy appends.
+ */
+const DEFAULT_MANIFEST = JSON.stringify({ name: 'routes', folders: [{ path: '../ro' }] })
 
 let root: string
 let cwd: string
@@ -55,7 +62,7 @@ beforeEach(async () => {
   await writeFile(join(cwd, 'work.txt'), 'w', 'utf8')
   // 'ro' carries no access label => it defaults to readOnly (the security default).
   manifestPath = join(cwd, 'ops.dsh-octopus')
-  await writeFile(manifestPath, JSON.stringify({ name: 'routes', folders: [{ path: '../ro' }] }), 'utf8')
+  await writeFile(manifestPath, DEFAULT_MANIFEST, 'utf8')
 })
 
 afterEach(async () => {
@@ -207,6 +214,13 @@ function errorCode(reply: Reply): string {
   return body.error.code
 }
 
+/** Read the `error.message` field of a failure envelope (the operator-facing text). */
+function errorMessage(reply: Reply): string {
+  const body = reply.body as { ok: boolean; error: { message: string } }
+  expect(body.ok).toBe(false)
+  return body.error.message
+}
+
 /** Activate the fixture manifest for the live session. */
 async function activate(harness: Harness): Promise<Record<string, unknown>> {
   const reply = await send(harness.route, {
@@ -214,6 +228,34 @@ async function activate(harness: Harness): Promise<Record<string, unknown>> {
     body: JSON.stringify({ sessionId: SESSION, path: manifestPath }),
   })
   return value(reply).workspace as Record<string, unknown>
+}
+
+/** Names of the sidecar backups sitting next to the fixture manifest. */
+async function backups(): Promise<string[]> {
+  return (await readdir(cwd)).filter(name => name.endsWith('.octopus-backup')).sort()
+}
+
+/** One root of a returned snapshot, located by its path. */
+function rootAt(workspace: Record<string, unknown>, path: string): { access: string; label: string } {
+  const roots = workspace.roots as Array<{ path: string; access: string; label: string }>
+  const found = roots.find(candidate => candidate.path === path)
+  expect(found, `no root at "${path}" in ${JSON.stringify(roots)}`).toBeDefined()
+  return found!
+}
+
+/**
+ * One root of a returned snapshot by path, or undefined when the snapshot no
+ * longer carries it — which is the shape a removal has to answer for.
+ * @param workspace - the snapshot a write route returned.
+ * @param path - the exact path to look for.
+ * @returns the root view, or undefined when the path is no longer a root.
+ */
+function rootByPath(
+  workspace: Record<string, unknown>,
+  path: string,
+): { path: string; listed: boolean; access: string } | undefined {
+  return (workspace.roots as Array<{ path: string; listed: boolean; access: string }>)
+    .find(candidate => candidate.path === path)
 }
 
 /** One session event (call or result) shaped as the host writes it. */
@@ -498,6 +540,584 @@ describe('host route read-only write report', () => {
       body: JSON.stringify({ sessionId: SESSION }),
     })
     expect(value(reply).violations).toEqual([])
+  })
+})
+
+/**
+ * The second write point in the plugin, reached from a row's padlock: one
+ * declared root's access level, rewritten in the very manifest the session
+ * activated. Everything here is asserted on the HTTP answer and on the file
+ * bytes, because those are the two things an operator can observe: the answer
+ * decides what the row draws, and the bytes decide what the NEXT activation
+ * will enforce.
+ */
+describe('host route folder access (the padlock write point)', () => {
+  /**
+   * The shape a padlock change leaves behind: an object entry that already
+   * carries an EXPLICIT level. A flip is then a one-token edit, so "everything
+   * else is byte-identical" is checkable without re-deriving the editor's
+   * insertion text here.
+   */
+  const EXPLICIT_MANIFEST = [
+    '{',
+    '  // the guarded root stays read-only until the operator says otherwise',
+    '  "name": "routes",',
+    '  "folders": [',
+    '    { "path": "../ro", "access": "readOnly" } // keep this note a comment',
+    '  ]',
+    '}',
+    '',
+  ].join('\n')
+
+  /**
+   * The shorthand fixture: a bare string entry, no object to add a member to.
+   * The path is absolute and spelled with forward slashes, exactly the form a
+   * hand-written manifest on Windows tends to carry.
+   * @param path - the absolute folder the entry names.
+   * @returns the manifest text.
+   */
+  function shorthandManifest(path: string): string {
+    const token = JSON.stringify(path.replace(/\\/g, '/'))
+    return [
+      '{',
+      '  "name": "routes",',
+      '  "folders": [',
+      `    ${token} // the guarded root, read-only by default`,
+      '  ]',
+      '}',
+      '',
+    ].join('\n')
+  }
+
+  /** One padlock request through the mounted route. */
+  function ask(harness: Harness, body: Record<string, unknown>): Promise<Reply> {
+    return send(harness.route, {
+      method: 'workspace.setFolderAccess',
+      body: JSON.stringify({ sessionId: SESSION, ...body }),
+    })
+  }
+
+  it('refuses the write while no operation space is active', async () => {
+    const reply = await ask(mount(), { path: roRoot, access: 'readWrite' })
+    expect(reply.status).toBe(403)
+    expect(errorCode(reply)).toBe('forbidden')
+    expect(errorMessage(reply)).toContain('no operation space is active')
+    expect(await backups()).toEqual([])
+  })
+
+  it('refuses an unknown access level, and a missing one, before reading the manifest', async () => {
+    const harness = mount()
+    await activate(harness)
+    const unknown = await ask(harness, { path: roRoot, access: 'sideways' })
+    expect(unknown.status).toBe(400)
+    expect(errorCode(unknown)).toBe('bad-request')
+    expect(errorMessage(unknown)).toBe('unknown access "sideways"')
+    // A missing `access` is NOT "readOnly by default" on this route: the padlock
+    // always names the level it wants, so an absent one is the same refusal.
+    const missing = await ask(harness, { path: roRoot })
+    expect(missing.status).toBe(400)
+    expect(errorCode(missing)).toBe('bad-request')
+    expect(errorMessage(missing)).toBe('unknown access "undefined"')
+    expect(await readFile(manifestPath, 'utf8')).toBe(DEFAULT_MANIFEST)
+    expect(await backups()).toEqual([])
+  })
+
+  it('refuses a path that is no root of the active space', async () => {
+    const harness = mount()
+    await activate(harness)
+    const outside = join(root, 'outside')
+    await mkdir(outside)
+    const notARoot = await ask(harness, { path: outside, access: 'readWrite' })
+    expect(notARoot.status).toBe(400)
+    expect(errorCode(notARoot)).toBe('bad-request')
+    expect(errorMessage(notARoot)).toBe(`"${outside}" is not a root of the active operation space`)
+    // INSIDE the space but not a root of its own: still not a root, still refused,
+    // and still nothing written — the route never guesses at a parent entry.
+    const child = await ask(harness, { path: join(roRoot, 'guarded.txt'), access: 'readWrite' })
+    expect(child.status).toBe(400)
+    expect(errorCode(child)).toBe('bad-request')
+    expect(await readFile(manifestPath, 'utf8')).toBe(DEFAULT_MANIFEST)
+    expect(await backups()).toEqual([])
+  })
+
+  it('refuses the session cwd, the implicit root the manifest does not declare', async () => {
+    const harness = mount()
+    const workspace = await activate(harness)
+    const implicit = (workspace.roots as Array<{ path: string; listed: boolean }>)
+      .find(candidate => !candidate.listed)!
+    // It IS a root of the active space, so the refusal must be the other one: there
+    // is no manifest entry that could persist a level for it. Asking for the level
+    // it already has changes nothing about that.
+    const reply = await ask(harness, { path: implicit.path, access: 'readOnly' })
+    expect(reply.status).toBe(400)
+    expect(errorCode(reply)).toBe('bad-request')
+    expect(errorMessage(reply)).toBe(`"${implicit.path}" is not declared in the manifest`)
+    expect(await readFile(manifestPath, 'utf8')).toBe(DEFAULT_MANIFEST)
+    expect(await backups()).toEqual([])
+  })
+
+  it('flips a declared read-only root to readWrite, editing exactly one token', async () => {
+    await writeFile(manifestPath, EXPLICIT_MANIFEST, 'utf8')
+    const harness = mount()
+    await activate(harness)
+
+    const answer = value(await ask(harness, { path: roRoot, access: 'readWrite' }))
+    expect(answer.changed).toBe(true)
+    expect(answer.label).toBe('ro')
+
+    // The sidecar the answer names is real, sits next to the manifest, and holds the
+    // manifest AS IT WAS — the undo an operator would reach for.
+    const backup = answer.backup as string
+    expect(basename(backup).startsWith('ops.dsh-octopus.')).toBe(true)
+    expect(await backups()).toContain(basename(backup))
+    expect(await readFile(backup, 'utf8')).toBe(EXPLICIT_MANIFEST)
+
+    // One literal moved; put it back and the file is byte-identical again, comments
+    // (and their lines) included.
+    const after = await readFile(manifestPath, 'utf8')
+    expect(after).toContain('"access": "readWrite"')
+    expect(after.replace('"access": "readWrite"', '"access": "readOnly"')).toBe(EXPLICIT_MANIFEST)
+    expect(after).toContain('// keep this note a comment')
+    expect(after).toContain('// the guarded root stays read-only until the operator says otherwise')
+
+    // The snapshot the answer carries already reports the new level, so the row's
+    // padlock and the write fence both follow the file without a restart.
+    expect(rootAt(answer.workspace as Record<string, unknown>, roRoot).access).toBe('readWrite')
+  })
+
+  it('flips it back, so the round trip returns the original bytes', async () => {
+    await writeFile(manifestPath, EXPLICIT_MANIFEST, 'utf8')
+    const harness = mount()
+    await activate(harness)
+
+    expect(value(await ask(harness, { path: roRoot, access: 'readWrite' })).changed).toBe(true)
+    const back = value(await ask(harness, { path: roRoot, access: 'readOnly' }))
+    expect(back.changed).toBe(true)
+    expect(back.label).toBe('ro')
+    expect(await readFile(manifestPath, 'utf8')).toBe(EXPLICIT_MANIFEST)
+    expect(rootAt(back.workspace as Record<string, unknown>, roRoot).access).toBe('readOnly')
+  })
+
+  it('answers changed:false — no write, no backup — when the entry already declares that level', async () => {
+    await writeFile(manifestPath, EXPLICIT_MANIFEST, 'utf8')
+    const harness = mount()
+    await activate(harness)
+
+    // The manifest already declares readOnly, so the very first request is a no-op:
+    // no sidecar is left next to an untouched file.
+    const same = value(await ask(harness, { path: roRoot, access: 'readOnly' }))
+    expect(same.changed).toBe(false)
+    expect(same.label).toBe('ro')
+    expect(same.backup).toBeUndefined()
+    expect(await readFile(manifestPath, 'utf8')).toBe(EXPLICIT_MANIFEST)
+    expect(await backups()).toEqual([])
+
+    // And after a real flip, repeating that level must move neither the file nor
+    // the set of sidecars.
+    expect(value(await ask(harness, { path: roRoot, access: 'readWrite' })).changed).toBe(true)
+    const flipped = await readFile(manifestPath, 'utf8')
+    const sidecars = await backups()
+    const again = value(await ask(harness, { path: roRoot, access: 'readWrite' }))
+    expect(again.changed).toBe(false)
+    expect(again.label).toBe('ro')
+    expect(again.backup).toBeUndefined()
+    expect(await readFile(manifestPath, 'utf8')).toBe(flipped)
+    expect(await backups()).toEqual(sidecars)
+  })
+
+  it('turns a string-shorthand entry into the object form, token verbatim', async () => {
+    const before = shorthandManifest(roRoot)
+    const token = JSON.stringify(roRoot.replace(/\\/g, '/'))
+    await writeFile(manifestPath, before, 'utf8')
+    const harness = mount()
+    const workspace = await activate(harness)
+    // The shorthand carries no level, so it takes the security default first.
+    expect(rootAt(workspace, roRoot).access).toBe('readOnly')
+
+    const answer = value(await ask(harness, { path: roRoot, access: 'readWrite' }))
+    expect(answer.changed).toBe(true)
+    expect(answer.label).toBe('ro')
+
+    const after = await readFile(manifestPath, 'utf8')
+    expect(after).toContain(`{ "path": ${token}, "access": "readWrite" }`)
+    // The rewrite is that one element and nothing else: the author's string token is
+    // copied verbatim and the note on its line stays a comment.
+    expect(after).toBe(before.replace(token, `{ "path": ${token}, "access": "readWrite" }`))
+    expect(after).toContain('// the guarded root, read-only by default')
+    expect(rootAt(answer.workspace as Record<string, unknown>, roRoot).access).toBe('readWrite')
+  })
+
+  it('matches a relative manifest entry from its absolute request', async () => {
+    // The entry is written so that ONLY resolution makes it equal the request: the
+    // raw token shares no prefix with the absolute path the snapshot reports. This is
+    // precisely why the host resolves each entry with the policy's own rule instead
+    // of comparing the request to the text.
+    const relative = [
+      '{',
+      '  "folders": [ "../cwd/../ro" ]',
+      '}',
+      '',
+    ].join('\n')
+    await writeFile(manifestPath, relative, 'utf8')
+    const harness = mount()
+    const workspace = await activate(harness)
+    expect(rootAt(workspace, roRoot).access).toBe('readOnly')
+
+    const answer = value(await ask(harness, { path: roRoot, access: 'readWrite' }))
+    expect(answer.changed).toBe(true)
+    expect(answer.label).toBe('ro')
+
+    const after = await readFile(manifestPath, 'utf8')
+    expect(after).toContain('"../cwd/../ro"')
+    // The entry keeps its own spelling: the request never rewrites it.
+    expect(after).not.toContain(roRoot)
+    expect(rootAt(answer.workspace as Record<string, unknown>, roRoot).access).toBe('readWrite')
+  })
+})
+
+/**
+ * The third write point, reached from a row's context menu: one declaration is
+ * DELETED from the manifest the session activated. The folder on disk is never
+ * touched, so these cases assert on the HTTP answer and on the file bytes exactly
+ * like the padlock block above — plus the one thing a removal can do that an
+ * access flip cannot: leave the space with a different SET of roots (and, when the
+ * removed entry was the session cwd itself, hand that path back as the implicit
+ * readWrite root the policy appends).
+ */
+describe('host route folder removal (the context-menu write point)', () => {
+  /**
+   * Two declared roots on their own lines, one of them with a note. This is the
+   * shape a removal has to give back byte for byte: the deleted entry leaves with
+   * exactly one separator comma and its own line's note, the survivor is untouched,
+   * and the array stays a non-empty, parseable `folders`.
+   */
+  const TWO_ROOTS_MANIFEST = [
+    '{',
+    '  // the guarded root leaves first',
+    '  "name": "routes",',
+    '  "folders": [',
+    '    { "path": "../ro" }, // the one that goes',
+    '    { "path": "../keep", "access": "readWrite" }',
+    '  ]',
+    '}',
+    '',
+  ].join('\n')
+
+  /** The same document after the FIRST entry (and its line) is gone. */
+  const TWO_ROOTS_AFTER_FIRST = [
+    '{',
+    '  // the guarded root leaves first',
+    '  "name": "routes",',
+    '  "folders": [',
+    '    { "path": "../keep", "access": "readWrite" }',
+    '  ]',
+    '}',
+    '',
+  ].join('\n')
+
+  /**
+   * The same document after the LAST entry is gone instead. Only the separator
+   * comma in front of it may move: the first entry and its note stay exactly where
+   * the author put them.
+   */
+  const TWO_ROOTS_AFTER_LAST = [
+    '{',
+    '  // the guarded root leaves first',
+    '  "name": "routes",',
+    '  "folders": [',
+    '    { "path": "../ro" } // the one that goes',
+    '  ]',
+    '}',
+    '',
+  ].join('\n')
+
+  /**
+   * The session cwd declared by hand next to another root. Removing that entry must
+   * NOT lose the folder: with no declaration left to claim it, the policy appends
+   * its own implicit readWrite cwd root.
+   */
+  const CWD_DECLARED_MANIFEST = [
+    '{',
+    '  "name": "routes",',
+    '  "folders": [',
+    '    ".", // the session cwd, declared by hand',
+    '    { "path": "../ro", "access": "readOnly" }',
+    '  ]',
+    '}',
+    '',
+  ].join('\n')
+
+  /** That document after the hand-written cwd entry is gone. */
+  const CWD_DECLARED_AFTER = [
+    '{',
+    '  "name": "routes",',
+    '  "folders": [',
+    '    { "path": "../ro", "access": "readOnly" }',
+    '  ]',
+    '}',
+    '',
+  ].join('\n')
+
+  /**
+   * The two-root fixture as a shorthand entry plus an object survivor: a bare
+   * string element has no members to edit, so a removal has to take the element
+   * AND its separator comma.
+   * @param path - the absolute folder the shorthand entry names.
+   * @returns the manifest text.
+   */
+  function shorthandAndSurvivor(path: string): string {
+    const token = JSON.stringify(path.replace(/\\/g, '/'))
+    return [
+      '{',
+      '  "name": "routes",',
+      '  "folders": [',
+      `    ${token}, // the guarded root, read-only by default`,
+      '    "../keep" // the survivor',
+      '  ]',
+      '}',
+      '',
+    ].join('\n')
+  }
+
+  /** The shorthand fixture after the bare string entry and its comma are gone. */
+  const SHORTHAND_AFTER = [
+    '{',
+    '  "name": "routes",',
+    '  "folders": [',
+    '    "../keep" // the survivor',
+    '  ]',
+    '}',
+    '',
+  ].join('\n')
+
+  /** One removal request through the mounted route. */
+  function removeFolder(harness: Harness, body: Record<string, unknown>): Promise<Reply> {
+    return send(harness.route, {
+      method: 'workspace.removeFolder',
+      body: JSON.stringify({ sessionId: SESSION, ...body }),
+    })
+  }
+
+  /** The two-root fixture on disk, with the folder its survivor entry names. */
+  async function twoRoots(): Promise<string> {
+    const keepRoot = join(root, 'keep')
+    await mkdir(keepRoot)
+    await writeFile(manifestPath, TWO_ROOTS_MANIFEST, 'utf8')
+    return keepRoot
+  }
+
+  it('refuses the removal while no operation space is active', async () => {
+    const reply = await removeFolder(mount(), { path: roRoot })
+    expect(reply.status).toBe(403)
+    expect(errorCode(reply)).toBe('forbidden')
+    expect(errorMessage(reply)).toContain('no operation space is active')
+    expect(await readFile(manifestPath, 'utf8')).toBe(DEFAULT_MANIFEST)
+    expect(await backups()).toEqual([])
+  })
+
+  it('refuses a path that is no root of the active space', async () => {
+    const harness = mount()
+    await activate(harness)
+    const outside = join(root, 'outside')
+    await mkdir(outside)
+    const notARoot = await removeFolder(harness, { path: outside })
+    expect(notARoot.status).toBe(400)
+    expect(errorCode(notARoot)).toBe('bad-request')
+    expect(errorMessage(notARoot)).toBe(`"${outside}" is not a root of the active operation space`)
+    // Inside the space but not a root of its own: still not a root, still refused,
+    // and still nothing written — a removal never guesses at a parent entry.
+    const child = await removeFolder(harness, { path: join(roRoot, 'guarded.txt') })
+    expect(child.status).toBe(400)
+    expect(errorCode(child)).toBe('bad-request')
+    expect(errorMessage(child)).toContain('is not a root of the active operation space')
+    expect(await readFile(manifestPath, 'utf8')).toBe(DEFAULT_MANIFEST)
+    expect(await backups()).toEqual([])
+  })
+
+  it('refuses the session cwd, the implicit root the manifest does not declare', async () => {
+    const harness = mount()
+    const workspace = await activate(harness)
+    const implicit = (workspace.roots as Array<{ path: string; listed: boolean }>)
+      .find(candidate => !candidate.listed)!
+    // It IS a root of the active space, so the refusal must be the other one: there
+    // is no manifest entry that could be deleted for it. The schema has no way to
+    // say "not this folder", which makes this refusal permanent by design.
+    const reply = await removeFolder(harness, { path: implicit.path })
+    expect(reply.status).toBe(400)
+    expect(errorCode(reply)).toBe('bad-request')
+    expect(errorMessage(reply)).toBe(`"${implicit.path}" is not declared in the manifest`)
+    expect(await readFile(manifestPath, 'utf8')).toBe(DEFAULT_MANIFEST)
+    expect(await backups()).toEqual([])
+  })
+
+  it('deletes a declared entry and nothing else, byte for byte', async () => {
+    const keepRoot = await twoRoots()
+    const harness = mount()
+    await activate(harness)
+
+    const answer = value(await removeFolder(harness, { path: roRoot }))
+    expect(answer.changed).toBe(true)
+    expect(answer.label).toBe('ro')
+
+    // The sidecar the answer names is real, sits next to the manifest, and holds the
+    // manifest AS IT WAS — the undo an operator would reach for.
+    const backup = answer.backup as string
+    expect(basename(backup).startsWith('ops.dsh-octopus.')).toBe(true)
+    expect(await backups()).toContain(basename(backup))
+    expect(await readFile(backup, 'utf8')).toBe(TWO_ROOTS_MANIFEST)
+
+    // Exactly one entry and its own line's note left; the survivor's line and the
+    // note above the array are byte-identical.
+    expect(await readFile(manifestPath, 'utf8')).toBe(TWO_ROOTS_AFTER_FIRST)
+
+    const workspace = answer.workspace as Record<string, unknown>
+    // The snapshot the answer carries no longer has that root, and the other one is
+    // still there with the level the manifest declares.
+    expect(rootByPath(workspace, roRoot)).toBeUndefined()
+    expect(rootAt(workspace, keepRoot).access).toBe('readWrite')
+    expect(workspace.name).toBe('routes')
+    expect((workspace.roots as Array<{ listed: boolean }>).some(candidate => !candidate.listed)).toBe(true)
+
+    // The declaration is gone; the FOLDER is not. Nothing in this route touches disk
+    // except the manifest itself.
+    expect(await readFile(join(roRoot, 'guarded.txt'), 'utf8')).toBe('original')
+  })
+
+  it('re-activates with the ORIGINAL activatedAt, so the violation floor cannot move', async () => {
+    await twoRoots()
+    const harness = mount()
+    const before = await activate(harness)
+
+    const answer = value(await removeFolder(harness, { path: roRoot }))
+    const after = answer.workspace as Record<string, unknown>
+
+    // The manifest really was re-read (one fewer root), and yet the timestamp the
+    // violation scan uses as its lower bound is the one activation set.
+    expect((after.roots as unknown[]).length).toBe((before.roots as unknown[]).length - 1)
+    expect(after.activatedAt).toBe(before.activatedAt)
+  })
+
+  it('hands the removed path back as the implicit readWrite root when it was the cwd', async () => {
+    await writeFile(manifestPath, CWD_DECLARED_MANIFEST, 'utf8')
+    const harness = mount()
+    const workspace = await activate(harness)
+    // While the entry is there, the manifest's own level governs the cwd (no level
+    // written => the security default) and nothing else claims it.
+    expect(rootByPath(workspace, cwd)).toMatchObject({ listed: true, access: 'readOnly' })
+
+    const answer = value(await removeFolder(harness, { path: cwd }))
+    expect(answer.changed).toBe(true)
+    expect(answer.label).toBe('cwd')
+    expect(await readFile(manifestPath, 'utf8')).toBe(CWD_DECLARED_AFTER)
+
+    // The notice-worthy fact: the path is STILL in the operation space. With no
+    // declaration claiming it any more, the policy appends its implicit cwd root —
+    // now readWrite, because that is what an implicit root always is. So a removal
+    // of the cwd itself does not remove that folder from the space, and the client
+    // must not say that it did.
+    const snapshot = answer.workspace as Record<string, unknown>
+    const implicit = rootByPath(snapshot, cwd)
+    expect(implicit).toEqual({ path: cwd, label: 'cwd', access: 'readWrite', exists: true, listed: false })
+    // The other declared root survived, so the space is the same size it was.
+    expect((snapshot.roots as unknown[]).length).toBe((workspace.roots as unknown[]).length)
+    expect(rootAt(snapshot, roRoot).access).toBe('readOnly')
+  })
+
+  it('removes the last entry of the array while another declaration survives', async () => {
+    const keepRoot = await twoRoots()
+    const harness = mount()
+    await activate(harness)
+
+    const answer = value(await removeFolder(harness, { path: keepRoot }))
+    expect(answer.changed).toBe(true)
+    expect(answer.label).toBe('keep')
+    // The separator comma in front of the last entry went with it; nothing dangles.
+    expect(await readFile(manifestPath, 'utf8')).toBe(TWO_ROOTS_AFTER_LAST)
+
+    const workspace = answer.workspace as Record<string, unknown>
+    // The space is still the space it was: same name, same declared survivor, and the
+    // implicit cwd root still rides along — so it never ends up rootless.
+    expect(workspace.name).toBe('routes')
+    expect(rootByPath(workspace, keepRoot)).toBeUndefined()
+    expect(rootAt(workspace, roRoot).access).toBe('readOnly')
+    expect((workspace.roots as Array<{ path: string }>).map(candidate => candidate.path).sort())
+      .toEqual([cwd, roRoot].sort())
+    expect((workspace.roots as Array<{ path: string; listed: boolean }>)
+      .filter(candidate => !candidate.listed).map(candidate => candidate.path)).toEqual([cwd])
+  })
+
+  it('refuses to empty the array: the only declared folder cannot be removed', async () => {
+    const harness = mount()
+    await activate(harness)
+    const before = (await readFile(manifestPath)).toString('utf8')
+
+    // The fixture declares exactly ONE root, so dropping it would leave
+    // `"folders": []` — which the product's own schema refuses (workspace-schema.ts:
+    // `"folders"` must be a non-empty array). manifest-edit.ts owns the wording; what
+    // this route guarantees is the reason and the fact that NOTHING happened: the
+    // refusal is taken BEFORE the transaction opens, so there is no write, no
+    // temporary file and no sidecar behind it.
+    const reply = await removeFolder(harness, { path: roRoot })
+    expect(reply.status).toBe(400)
+    expect(errorCode(reply)).toBe('bad-request')
+    expect(errorMessage(reply)).toMatch(/only declared folder/)
+
+    // Byte-identical, no sidecar, and the session's space is untouched: still active,
+    // still the same roots.
+    expect(await readFile(manifestPath, 'utf8')).toBe(before)
+    expect(await backups()).toEqual([])
+    // Nor the temporary file a transaction would have written: the refusal never
+    // opened one.
+    expect((await readdir(cwd)).filter(name => name.includes('.octopus-edit-'))).toEqual([])
+    const state = value(await send(harness.route, { body: JSON.stringify({ sessionId: SESSION }) }))
+    const workspace = state.workspace as Record<string, unknown>
+    expect(workspace).not.toBeNull()
+    expect(workspace.name).toBe('routes')
+    expect((workspace.roots as Array<{ path: string }>).map(candidate => candidate.path)).toEqual([roRoot, cwd])
+  })
+
+  it('answers "is not a root" on a second removal of the same path', async () => {
+    await twoRoots()
+    const harness = mount()
+    await activate(harness)
+    expect(value(await removeFolder(harness, { path: roRoot })).changed).toBe(true)
+
+    const sidecars = await backups()
+    const text = await readFile(manifestPath, 'utf8')
+    // The root is gone from the space, so the same request is now the plain
+    // "no such root" refusal — and a stale row cannot delete a second entry.
+    const again = await removeFolder(harness, { path: roRoot })
+    expect(again.status).toBe(400)
+    expect(errorCode(again)).toBe('bad-request')
+    expect(errorMessage(again)).toBe(`"${roRoot}" is not a root of the active operation space`)
+    expect(await readFile(manifestPath, 'utf8')).toBe(text)
+    expect(await backups()).toEqual(sidecars)
+  })
+
+  it('deletes a bare string-shorthand entry together with its comma', async () => {
+    const keepRoot = join(root, 'keep')
+    await mkdir(keepRoot)
+    const before = shorthandAndSurvivor(roRoot)
+    const token = JSON.stringify(roRoot.replace(/\\/g, '/'))
+    await writeFile(manifestPath, before, 'utf8')
+    const harness = mount()
+    // The shorthand carries no level, so it takes the security default first.
+    expect(rootAt(await activate(harness), roRoot).access).toBe('readOnly')
+
+    const answer = value(await removeFolder(harness, { path: roRoot }))
+    expect(answer.changed).toBe(true)
+    expect(answer.label).toBe('ro')
+
+    const after = await readFile(manifestPath, 'utf8')
+    // The bare element is gone with exactly one separator comma: the survivor is
+    // still an element of the array, and no `,,` was left behind.
+    expect(after).toBe(SHORTHAND_AFTER)
+    expect(after).not.toContain(token)
+    expect(after).not.toContain(',,')
+
+    const workspace = answer.workspace as Record<string, unknown>
+    expect(rootByPath(workspace, roRoot)).toBeUndefined()
+    expect(rootAt(workspace, keepRoot).access).toBe('readOnly')
   })
 })
 

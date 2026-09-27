@@ -9,7 +9,7 @@
 ## 它做什么
 
 - **多根目录**：一份 `*.dsh-octopus`（兼容旧名 `*.dsh-workspace`）清单一次列出多个根目录，侧边栏按会话隔离地展示与浏览。
-- **逐目录读写权限**：每个目录声明 `readWrite` 或 `readOnly`，**未标注默认只读**；只读根的名字右侧显示一把小锁，读写根不带任何权限标识。
+- **逐目录读写权限**：每个目录声明 `readWrite` 或 `readOnly`，**未标注默认只读**；根目录名字右侧是一把可点的小锁——只读是**闭合**的锁，读写是**打开**的锁，点一下就在两者之间切换（改的是你清单里那一条的 `access`，见步骤 7）。
 - **一眼可见的绝对路径**：每个根目录行最右侧的圆圈 i（ⓘ），鼠标悬停（或键盘聚焦）即显示该根的绝对路径——只读行原本被"只读"文案占用的悬停位置，现在归还给路径本身。
 - **开始页面上的入口**：内置右侧栏的起始页里，「章鱼作业区」卡片带一行说明（*在会话工作区内高效访问工作区外的资源。*）和打开它的快捷键 **Ctrl+Alt+S**（macOS 上是 ⌘⌥S）；焦点停在会话里任意位置都能按，没有打开会话时会明确拒绝而不是乱开页签。键位可以照常在「设置 → 快捷键」里改绑。
 - **卡片插图**：起始页卡片左侧显示作业区自己的插图（`src/client/guide-artwork.tsx`）。图片以 data URL 内嵌进客户端 bundle——DSH 的 `guide[].icon` 要的是**组件**而不是图片 URL，这样也就不用加宿主路由、不怕图裂；代价是包体积，所以源图会被居中裁剪压到 128×128。**换图不要手改 base64**，用 `scripts\make-guide-artwork.ps1 -Source <图片路径>` 重新生成。
@@ -66,6 +66,10 @@ dsh plugin --profile web remove dsh-octopus-operation-space
 3. 清单不在 cwd 时，在面板里填入它的绝对路径，回车或点「应用此作业区」；面板的 ⟳ 按钮可随时重新扫描。
 4. 面板列出各根目录；点目录展开，点文件即在 DSH 的文档预览页签中打开。
 5. 标题栏：最左是**清单路径**（与内置文件页一样，目录名弱化、末段主色，悬停显示完整路径），其右是根目录数量、越权计数，以及 **⟳ 重新读取清单**、**✕ 退出作业区** 两个工具按钮（尺寸与内置文件页一致）。
+6. **在面板空白处右键 →「选择文件夹加入作业区」**，可以把工作区外的文件夹加进来。它调起**宿主进程的原生「选择文件夹」对话框**（与内置「添加工作区」是同一个选择器），你选中的目录被追加进当前清单的 `folders`，并且**显式写成只读**（`"access": "readOnly"`，所以清单里 `defaultAccess: "readWrite"` 也不会把它悄悄升级）。加完立即生效：宿主重新激活清单，新根马上出现在列表里，不需要重启。改动前会在清单旁留一份 `<清单名>.<时间戳>.octopus-backup`，撤销就是把它拷回去。注意两点：右键落在**根目录行**上打开的是该行自己的菜单（见步骤 8），只有空白处才归本插件；写入的路径是**规范化后的真实路径**，且已在作业区内的目录只会得到一句「已在作业区内」，不会重复追加。
+7. **点根目录名字右侧的小锁，在只读 / 读写之间切换**：闭合的锁是只读，打开的锁是读写，悬停气泡会说明点下去会变成哪种；点一下即生效（改的还是你清单里那一条的 `access`，同样先备份），下方提示写明改了哪个目录。会话 cwd 的**隐含根**（清单没显式列出 cwd 时自动带上的那个）显示的是**不可点**的开锁标记——清单里没有它的条目，没有地方可以持久化；想给它固定权限，就把它显式写进 `folders`。
+
+8. **在某个根目录行上右键**，菜单两项：**移出作业区**（破坏性着色）与**改为只读 / 改为读写**（和步骤 7 的小锁是同一个动作、同一条路由，只是入口不同）。移出只删**清单里那一条声明**，磁盘上的文件夹**不会**被删除或移动——正因为这句话容易被误解，移出会先用平台自带的确认框问一次，勾选「我明白这只改清单」后确认按钮才可用；改权限则和小锁一样一键生效。两者都同样先留备份、写完回读校验。会话 cwd 的**隐含根**两项都是灰的，并有一行说明原因（清单里没有它的条目）。还有一个反直觉之处会写在提示里：如果移出的那条**正好解析成会话 cwd**，策略会立刻把隐含的读写根补回来，提示会明说「它仍作为会话工作区（隐含读写根）保留」，不会让你以为它真的离开了作业区。
 
 ## 清单格式
 
@@ -104,7 +108,7 @@ JSONC：允许注释与尾逗号。相对路径以**清单文件所在目录**�
 
 两层，互相独立：
 
-1. **结构性**：插件不暴露任何写入路由，因此它自己无法写出声明范围。
+1. **结构性**：除清单本身以外，插件不暴露任何写入路由。而这三处写入（右键空白处加入文件夹、点小锁改权限、行右键移出）改的都是**策略文件**而不是声明范围内的内容：它们由你在界面上发起（改权限没有确认框，移出有一次勾选式确认，都不留中间态——清单本身就是审计记录，落到只读根的写入还会被报出来），路径只能来自宿主的原生选择器（页面拿不到真实路径，也就无从伪造），路由只在会话已有激活作业区时才工作（否则 403），小锁与行菜单都只能动**清单里声明过的**根（隐含 cwd 根会被拒），加入时目标还会被检查是不是真实目录。写入前先做时间戳备份，新文本写进临时文件再原子替换，写完用产品自己的解析器回读校验；任何一步失败都会把原文件还原并报错，绝不留下改到一半的清单。
 2. **检测与还原**：`workspace.violations` 折叠会话事件日志，报出落在只读根内的写入调用——不论由谁发起——并标注能否还原；`workspace.rollback` 对单条记录做尽力还原。
 
 注意第 2 层是**尽力而为**的：它只在写入前的原内容仍可取得时才能还原。
@@ -116,6 +120,7 @@ JSONC：允许注释与尾逗号。相对路径以**清单文件所在目录**�
 - 宿主重启后，进程内的作业区注册表是空的；此时客户端用本插件自己的键 `dsh-octopus:v1:<sessionId>` 记录过的清单路径重新激活。宿主一旦有状态，以宿主为准。
 - 越权检测只覆盖会话事件日志窗口内的写入。
 - **模型原生文件工具不因此放开**：额外目录对模型是否可见，取决于 DSH 自身的沙箱策略，与本插件无关。
+- **右键加入文件夹需要宿主提供原生目录选择器**（内置 web 运行时自带，和「添加工作区」用的是同一个）。当前部署没有选择器时，面板里会显示明确原因（`directory-picker/unavailable`），不会静默无反应。
 
 ## 开发
 
@@ -161,18 +166,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1
 | --- | --- |
 | `src/index.ts` | 宿主入口：注册技能、挂载 `/octopus/api` 围栏路由 |
 | `src/workspace-schema.ts` | 清单解析（JSONC、字段归一、默认值） |
+| `src/manifest-edit.ts` | 唯一一处写盘：向 `folders` 追加一条、改写某一条的 `access`、删掉某一条（三者都是保注释的文本改写 + 备份 + 原子替换 + 回读校验） |
 | `src/workspace-policy.ts` | 根解析与读/写基集，路径分类 |
 | `src/workspace-discovery.ts` | 会话 cwd 的清单发现（只扫一层、只认已声明扩展名、上报 `autoActivate` 与解析错误） |
 | `src/workspace-guards.ts` | 跨多基集的路径规范化与包含判定 |
 | `src/workspace-detector.ts` | 只读越权扫描与还原 |
 | `src/native-reveal.ts` | 把一条已围栏的路径交给系统文件管理器（无 shell 的 argv，Explorer 退出码 1 视为已交接） |
 | `src/client/multiroot-tab.tsx` | 内置右侧栏里的作业区页签 |
+| `src/client/body-menu.tsx` | 空白处右键菜单的内容（一项「选择文件夹加入作业区」，加入即只读）与两种菜单共用的指针锚定卡片 `PointerContextMenu` |
+| `src/client/row-menu.tsx` | 根目录行右键菜单的内容（移出作业区 / 改为只读或读写；隐含根两项禁用并说明原因） |
 | `src/client/shortcut.ts` | 打开页签的快捷键命令（Ctrl+Alt+S；为何不是 Ctrl+O、不是 Ctrl+Alt+W、为何不写进 `inject`，文件头有完整证据） |
 | `src/client/guide-artwork.tsx` | 起始页卡片的插图（内嵌 data URL；由 `scripts\make-guide-artwork.ps1` 生成） |
 | `src/client/tree-metrics.ts` | 与内置「工作区文件」共享的度量与令牌（唯一事实来源，由测试钉住） |
 | `src/client/tool-button.tsx` | 内置文件页 `.tool` 外观的按钮（页头动作与行内桌面动作共用） |
 | `src/client/entry-order.ts` | 与内置一致的行序：目录优先 + 自然序、大小写不敏感 |
-| `src/client/root-markers.tsx` | 根行右侧两个标记：内联小锁（codicon，CC-BY-4.0）与悬停显示绝对路径的圆圈 i（ⓘ） |
+| `src/client/root-markers.tsx` | 根行名字右侧的小锁（内联 codicon 的 `lock` / `unlock`，CC-BY-4.0；点击切换权限）与悬停显示绝对路径的圆圈 i（ⓘ） |
 | `src/client/reveal-button.tsx` | 行右侧的桌面动作：悬停时出现，点它把该行路径交给系统文件管理器 |
 | `src/client/file-address.ts` | `dsh-resource://` 文件地址构造（由测试对着产品解析器锁定） |
 
@@ -185,13 +193,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\uninstall-plugin.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\uninstall-plugin.ps1 -Yes      # 真摘（默认扫全部 profile）
 ```
 
-它会先把该 profile 的 `package.json` 备份到 `octopus-uninstall-backups\<时间戳>\`，然后删掉依赖声明、已安装的包目录与 `.pnpm` 项，并剥掉 `cordis.patch.yml` / `cordis.yml` 里挂载它的行，最后逐项复核没有残留（其它插件不受影响）。修好之后装回去：
+它会先把该 profile 的 `package.json` 备份到 `octopus-uninstall-backups\<时间戳>\`，然后删掉依赖声明、**`dsh.profile.bundles` 里的挂载项**、已安装的包目录与 `.pnpm` 项，并剥掉 `cordis.patch.yml` / `cordis.yml` 里挂载它的行，最后逐项复核没有残留（其它插件不受影响）。第二条是实测补上的：只删依赖项会让 profile 继续要求加载一个已经不在磁盘上的包，下次启动就会失败。修好之后装回去：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -Yes
 ```
 
 > 注意：`git reset --hard` **救不了**这种事故——插件那时已经装进 profile，与仓库状态无关，必须先把插件摘掉（或重装 DSH）。
+>
+> 另一个方向：本插件在你确认后还会改**你自己的清单文件**（右键加入文件夹、行右键移出、点小锁改权限）。那些改动与它们旁边的 `<清单名>.<时间戳>.octopus-backup` 备份都在清单所在目录，**不在 profile 里**，所以摘掉插件不会连它们一起删——撤销就是拿备份覆盖回去，或者手工把删掉的那一行加回来、把权限改回原值。卸载脚本最后也会把这条提示打出来。
 
 ---
 
@@ -199,4 +209,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -Yes
 
 本包从 [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar)（MIT，`omdsh-dev`）派生：该项目的多根工作区特性连同若干基础设施模块（`fs-tree` / `wire` / `trust-fence` / `session-path` / `context-types`）被保留并改写，其余侧边栏工作台功能全部移除。上游 MIT 署名见 [LICENSE](LICENSE)。
 
-界面上只读根的小锁是 Microsoft VS Code Codicons 的 `lock` 图标（[CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/)，作者 Microsoft Corporation），路径数据内联在 `src/client/root-markers.tsx`，完整署名与来源见该文件顶部注释。其余图标来自 DSH 自己的平台模块 `@deepseek-ai/dsh-client-ui-primitives`，不随本包分发。
+界面上根行的小锁是 Microsoft VS Code Codicons 的 `lock` 与 `unlock` 两个图标（[CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/)，作者 Microsoft Corporation），路径数据内联在 `src/client/root-markers.tsx`，完整署名与来源见该文件顶部注释。其余图标来自 DSH 自己的平台模块 `@deepseek-ai/dsh-client-ui-primitives`，不随本包分发。

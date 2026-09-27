@@ -268,12 +268,19 @@ describe('operation-space copy', () => {
     // dead weight in two languages. Reading the sources keeps this honest without
     // a hand-maintained list — including the keyboard entry, which owns the
     // refusal copy.
-    const [tab, shortcut] = await Promise.all([
+    const [tab, shortcut, menu, rowMenu] = await Promise.all([
       readFile(new URL('../src/client/multiroot-tab.tsx', import.meta.url), 'utf8'),
       readFile(new URL('../src/client/shortcut.ts', import.meta.url), 'utf8'),
+      // The body's right-click menu owns copy of its own (the one trust level it
+      // offers, all the "waiting for a folder" answers), so it counts as a caller
+      // exactly like the tab and the keyboard entry.
+      readFile(new URL('../src/client/body-menu.tsx', import.meta.url), 'utf8'),
+      // So does a row's menu: the two row labels, the implicit-root explanation
+      // and the removal confirmation's four labels live there or in the tab.
+      readFile(new URL('../src/client/row-menu.tsx', import.meta.url), 'utf8'),
     ])
     const referenced = new Set(
-      [...`${tab}\n${shortcut}`.matchAll(/\bt\('([A-Za-z]+)'/g)].map(match => match[1]),
+      [...`${tab}\n${shortcut}\n${menu}\n${rowMenu}`.matchAll(/\bt\('([A-Za-z]+)'/g)].map(match => match[1]),
     )
     expect(Object.keys(zh).filter(key => !referenced.has(key))).toEqual([])
   })

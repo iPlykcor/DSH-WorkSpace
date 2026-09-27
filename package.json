@@ -1,6 +1,6 @@
 {
   "name": "dsh-octopus-operation-space",
-  "version": "0.4.1",
+  "version": "0.7.0",
   "description": "DSH web plugin: multi-root operation spaces for the built-in right Sidebar. One JSONC manifest declares several folders with per-folder read/write access; undeclared paths are read-only, enforced by host-side path fencing and backed by best-effort write detection and rollback. Deliberately single-feature — file opening and rendering are delegated to DSH's own viewers.",
   "type": "module",
   "repository": {

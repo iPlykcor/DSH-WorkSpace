@@ -80,10 +80,24 @@ export class WorkspaceRegistry {
    * a policy, then stored. Throws `WsManifestError` / `SidebarError` for
    * invalid input — the session keeps its previous workspace (if any) on a
    * failed activation, so a bad edit never silently drops the active setup.
+   *
+   * `keepActivatedAt` exists for the ONE re-activation this plugin performs
+   * itself: after appending a folder to the manifest (`workspace.addFolder`).
+   * The violation scan treats `activatedAt` as its time floor, so bumping it
+   * would silently hide writes that already happened earlier in the session —
+   * an edit to the manifest must not move that floor, only a fresh activation by
+   * the operator may.
    */
-  async activate(sessionId: string, path: string, cwd: string, ci: boolean): Promise<ActiveWorkspace> {
+  async activate(
+    sessionId: string,
+    path: string,
+    cwd: string,
+    ci: boolean,
+    keepActivatedAt?: number,
+  ): Promise<ActiveWorkspace> {
     const absolute = requireAbsolute(resolveSessionPath(cwd, path))
     const workspace = (await buildWorkspaceFromFile(absolute, cwd, ci, this.log)).workspace
+    if (keepActivatedAt !== undefined) workspace.activatedAt = keepActivatedAt
     this.bySession.set(sessionId, workspace)
     this.log(`activate session=${sessionId} file="${absolute}" roots=${workspace.roots.map(r => `${r.label}(${r.access}${r.exists ? '' : ',missing'})`).join(', ')}`)
     return workspace

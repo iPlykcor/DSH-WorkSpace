@@ -9,9 +9,10 @@
 
     1. backs the profile's package.json up,
     2. drops the dependency entry from package.json,
-    3. deletes node_modules\dsh-octopus-operation-space (plus its .pnpm entries),
-    4. strips any cordis.patch.yml / cordis.yml entry that mounts the plugin,
-    5. verifies nothing points at the plugin any more and prints the next steps.
+    3. removes the plugin from the profile's dsh.profile.bundles mount list,
+    4. deletes node_modules\dsh-octopus-operation-space (plus its .pnpm entries),
+    5. strips any cordis.patch.yml / cordis.yml entry that mounts the plugin,
+    6. verifies nothing points at the plugin any more and prints the next steps.
 
   Order matters on purpose: doing this by hand is easy to get wrong, and the dsh
   CLI is exactly the thing that may be refusing to run.
@@ -117,14 +118,33 @@ foreach ($dir in $targets) {
     $hits = @(Get-ChildItem -Path $pnpmRoot -Directory -Filter "$pluginName@*" -ErrorAction SilentlyContinue)
     if ($hits.Count -gt 0) { $hasPnpm = $true }
   }
+  # dsh MOUNTS a profile plugin through dsh.profile.bundles, not only through the
+  # dependency entry: leaving that name behind asks the next host start to load a
+  # package that is no longer on disk. Measured on a real install.
+  $bundled = $false
+  if ($manifest) {
+    $dshSection = $manifest.PSObject.Properties['dsh']
+    if ($dshSection -and $dshSection.Value) {
+      $profileSection = $dshSection.Value.PSObject.Properties['profile']
+      if ($profileSection -and $profileSection.Value) {
+        $bundlesSection = $profileSection.Value.PSObject.Properties['bundles']
+        if ($bundlesSection -and $bundlesSection.Value) {
+          foreach ($entry in @($bundlesSection.Value)) {
+            if ("$entry" -eq $pluginName) { $bundled = $true }
+          }
+        }
+      }
+    }
+  }
   $plan += [pscustomobject]@{
     Dir         = $dir
     Manifest    = $manifestPath
     Declared    = $declared
+    Bundled     = $bundled
     Installed   = $hasDir
     Pnpm        = $hasPnpm
     Yml         = $ymlFiles
-    Touched     = ($declared -or $hasDir -or $hasPnpm -or $ymlFiles.Count -gt 0)
+    Touched     = ($declared -or $bundled -or $hasDir -or $hasPnpm -or $ymlFiles.Count -gt 0)
   }
 }
 
@@ -135,6 +155,7 @@ foreach ($item in $plan) {
   $anyTouched = $true
   Write-Host "  profile: $($item.Dir)"
   if ($item.Declared) { Write-Host "    - drop the dependency entry from package.json" }
+  if ($item.Bundled) { Write-Host "    - unmount it from dsh.profile.bundles in package.json" }
   if ($item.Installed) { Write-Host "    - delete node_modules\$pluginName" }
   if ($item.Pnpm) { Write-Host "    - delete node_modules\.pnpm\$pluginName@*" }
   foreach ($yml in $item.Yml) { Write-Host "    - strip its entry from $(Split-Path -Leaf $yml)" }
@@ -164,12 +185,12 @@ foreach ($item in $plan) {
     Write-Ok "backed up package.json to $backupDir"
   }
 
-  if ($item.Declared) {
+  if ($item.Declared -or $item.Bundled) {
     $manifest = $null
     try { $manifest = [string](Get-Content -Path $item.Manifest -Raw) | ConvertFrom-Json }
     catch { $manifest = $null }
     if (-not $manifest) {
-      Write-Bad "cannot parse $($item.Manifest); remove the dependency by hand"
+      Write-Bad "cannot parse $($item.Manifest); remove the reference by hand"
     }
     else {
       $removed = 0
@@ -180,9 +201,25 @@ foreach ($item in $plan) {
           $removed++
         }
       }
+      $unmounted = 0
+      $dshSection = $manifest.PSObject.Properties['dsh']
+      if ($dshSection -and $dshSection.Value) {
+        $profileSection = $dshSection.Value.PSObject.Properties['profile']
+        if ($profileSection -and $profileSection.Value) {
+          $bundlesSection = $profileSection.Value.PSObject.Properties['bundles']
+          if ($bundlesSection -and $bundlesSection.Value) {
+            $keep = @()
+            foreach ($entry in @($bundlesSection.Value)) {
+              if ("$entry" -eq $pluginName) { $unmounted++ } else { $keep += $entry }
+            }
+            $bundlesSection.Value = @($keep)
+          }
+        }
+      }
       $json = $manifest | ConvertTo-Json -Depth 20
       [System.IO.File]::WriteAllText($item.Manifest, $json, (New-Object System.Text.UTF8Encoding($false)))
       Write-Ok "removed $removed dependency entr(y|ies) from package.json"
+      if ($unmounted -gt 0) { Write-Ok "unmounted $unmounted dsh.profile.bundles entr(y|ies)" }
     }
   }
 
@@ -238,6 +275,16 @@ if ($problems.Count -gt 0) {
   exit 1
 }
 Write-Ok 'the plugin is out of every profile it was installed in'
+Write-Host ''
+Write-Host 'NOTE: the plugin can also edit operation-space manifests on request:'
+Write-Host '      adding a folder (the tab body right-click menu), or changing one'
+Write-Host '      root between read-only and read-write (the padlock beside its name).'
+Write-Host '      Those edits live in YOUR manifest files, not in the profile, so'
+Write-Host '      removing the plugin leaves them in place - together with the sidecar'
+Write-Host '      backup written next to each edited manifest:'
+Write-Host '        <manifest>.<timestamp>.octopus-backup'
+Write-Host '      To undo one: copy that backup over the manifest, or edit the entry'
+Write-Host '      by hand (delete the added folder, or put its access level back).'
 Write-Host ''
 Write-Host 'NEXT: restart the host so the next start does not load it:'
 Write-Host '  dsh web'

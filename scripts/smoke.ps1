@@ -190,6 +190,13 @@ try {
   Assert-Status (Invoke-OctopusApi $base 'session.cwd' $stateBody) 200 'session.cwd for a cold session (regression: used to 500)'
   Assert-Status (Invoke-OctopusApi $base 'workspace.state' $stateBody) 200 'workspace.state with no active space'
   Assert-Status (Invoke-OctopusApi $base 'fs.tree' (Body @{ sessionId = $session; path = $fx })) 403 'fs.tree is fenced while no space is active'
+  # The manifest-append route is fenced the same way, and answering 403 (not 404)
+  # is also how this probe proves the route is registered at all.
+  Assert-Status (Invoke-OctopusApi $base 'workspace.addFolder' (Body @{ sessionId = $session; path = $fx })) 403 'workspace.addFolder with no active space -> 403'
+  # Same fence, same proof of registration, for the padlock route.
+  Assert-Status (Invoke-OctopusApi $base 'workspace.setFolderAccess' (Body @{ sessionId = $session; path = $fx; access = 'readWrite' })) 403 'workspace.setFolderAccess with no active space -> 403'
+  # Same fence, same proof of registration, for the removal route.
+  Assert-Status (Invoke-OctopusApi $base 'workspace.removeFolder' (Body @{ sessionId = $session; path = $fx })) 403 'workspace.removeFolder with no active space -> 403'
 
   # Discovery is the deliberate exception to that fence: it runs precisely while
   # nothing is active, because it is what makes applying a manifest possible
@@ -219,6 +226,201 @@ try {
   Assert-Status $rollback 200 'workspace.rollback with an unknown callId'
   if ($rollback.status -eq 200 -and $rollback.body -match '"ok":false') { Write-Pass 'rollback refused an unknown callId' }
   elseif ($rollback.status -eq 200) { Write-Fail "rollback did not refuse: $($rollback.body)" }
+  Write-Step 'route probes: adding a folder to the active space'
+  # This is the plugin's ONLY write to the user's disk, so the probe list is
+  # deliberately long: every refusal, the write itself, what the manifest then
+  # says, the sidecar backup, and idempotence.
+  $extra = Join-Path $fx 'extra'
+  New-Item -ItemType Directory -Force -Path $extra | Out-Null
+  Assert-Status (Invoke-OctopusApi $base 'workspace.addFolder' (Body @{ sessionId = $session; path = $manifest })) 400 'workspace.addFolder refuses a file (400)'
+  Assert-Status (Invoke-OctopusApi $base 'workspace.addFolder' (Body @{ sessionId = $session; path = (Join-Path $fx 'no-such-folder') })) 400 'workspace.addFolder refuses a missing path (400)'
+  Assert-Status (Invoke-OctopusApi $base 'workspace.addFolder' (Body @{ sessionId = $session; path = $extra; access = 'sideways' })) 400 'workspace.addFolder refuses an unknown access (400)'
+  $added = Invoke-OctopusApi $base 'workspace.addFolder' (Body @{ sessionId = $session; path = $extra })
+  Assert-Status $added 200 'workspace.addFolder appends a real directory'
+  if ($added.status -eq 200) {
+    if ($added.body -match '"added":true') { Write-Pass 'the append is reported as added' }
+    else { Write-Fail "the append was not reported: $($added.body)" }
+    if ($added.body -match '"access":"readOnly"') { Write-Pass 'the new root is read-only by default' }
+    else { Write-Fail "the default access is not readOnly: $($added.body)" }
+    if ($added.body -match '"label":"extra"') { Write-Pass 'the answer names the appended folder' }
+    else { Write-Fail "the answer does not name the folder: $($added.body)" }
+  }
+  $manifestText = [string](Get-Content -Path $manifest -Raw)
+  if ($manifestText -match '"path": "extra"') { Write-Pass 'the manifest gained a RELATIVE path (the folder sits under the manifest directory)' }
+  else { Write-Fail "the manifest does not carry the new entry: $manifestText" }
+  if ($manifestText -match '"name": "smoke"') { Write-Pass 'the manifest kept the keys it already had' }
+  else { Write-Fail "the manifest lost content: $manifestText" }
+  $backups = @(Get-ChildItem -Path $fx -Filter '*octopus-backup' -File)
+  if ($backups.Count -ge 1) { Write-Pass "a sidecar backup was kept: $($backups[0].Name)" }
+  else { Write-Fail 'no backup was written next to the manifest' }
+  $again = Invoke-OctopusApi $base 'workspace.addFolder' (Body @{ sessionId = $session; path = $extra })
+  Assert-Status $again 200 'workspace.addFolder for a folder that is already declared'
+  if ($again.status -eq 200 -and $again.body -match '"added":false') { Write-Pass 'the second add reports added:false instead of duplicating' }
+  elseif ($again.status -eq 200) { Write-Fail "the second add was not idempotent: $($again.body)" }
+  $afterEdit = Invoke-OctopusApi $base 'workspace.state' $stateBody
+  Assert-Status $afterEdit 200 'workspace.state after the edit (the host re-activated the manifest)'
+  if ($afterEdit.status -eq 200 -and $afterEdit.body -match '"label":"extra"') { Write-Pass 'the re-activated snapshot already lists the new root' }
+  elseif ($afterEdit.status -eq 200) { Write-Fail "the new root is missing from the snapshot: $($afterEdit.body)" }
+
+  Write-Step 'route probes: changing a root access level (the padlock write point)'
+  # The SECOND write point, sharing the append's transaction but aimed at one
+  # declared entry. Same idea as the block above: every refusal that keeps a level
+  # from landing in the wrong entry, then the write itself, the sidecar, and the
+  # idempotent repeat.
+  $outside = Join-Path $home2 'outside-the-space'
+  New-Item -ItemType Directory -Force -Path $outside | Out-Null
+  Assert-Status (Invoke-OctopusApi $base 'workspace.setFolderAccess' (Body @{ sessionId = $session; path = $extra; access = 'sideways' })) 400 'workspace.setFolderAccess refuses an unknown access (400)'
+  Assert-Status (Invoke-OctopusApi $base 'workspace.setFolderAccess' (Body @{ sessionId = $session; path = $outside; access = 'readWrite' })) 400 'workspace.setFolderAccess refuses a path outside the space (400)'
+  # The session cwd is in every snapshot as the implicit root, but no manifest entry
+  # declares it, so there is nothing that could persist a level for it.
+  Assert-Status (Invoke-OctopusApi $base 'workspace.setFolderAccess' (Body @{ sessionId = $session; path = $fx; access = 'readOnly' })) 400 'workspace.setFolderAccess refuses the implicit session root (400)'
+
+  $hashBefore = (Get-FileHash -Path $manifest -Algorithm SHA256).Hash
+  $flipped = Invoke-OctopusApi $base 'workspace.setFolderAccess' (Body @{ sessionId = $session; path = $extra; access = 'readWrite' })
+  Assert-Status $flipped 200 'workspace.setFolderAccess flips a declared root'
+  if ($flipped.status -eq 200) {
+    # The top-level answer only: the snapshot inside it cannot contain `changed`.
+    if ($flipped.body -match '"changed":true,"label":"extra"') { Write-Pass 'the flip is reported as changed, and names the flipped folder' }
+    else { Write-Fail "the flip was not reported for extra: $($flipped.body)" }
+    if ($flipped.body -match '"backup":"([^"]+)"') {
+      # JSON escapes the Windows separators; collapse them back into a real path.
+      # (`-replace`, not `.Replace()`: the latter picks the char overload and dies
+      # on the two-character pattern, see AGENTS.md section 2.)
+      $backupPath = $Matches[1] -replace '\\\\', '\'
+      if ((Test-Path -LiteralPath $backupPath) -and $backupPath.StartsWith($manifest) -and $backupPath.EndsWith('.octopus-backup')) {
+        Write-Pass "the padlock change left a sidecar backup: $(Split-Path -Leaf $backupPath)"
+      } else {
+        Write-Fail "the reported backup is not a fresh sidecar next to the manifest: $backupPath"
+      }
+    } else {
+      Write-Fail "the padlock change reported no backup: $($flipped.body)"
+    }
+  }
+  $hashFlipped = (Get-FileHash -Path $manifest -Algorithm SHA256).Hash
+  if ($hashBefore -ne $hashFlipped) { Write-Pass 'the flip really rewrote the manifest (the bytes moved)' }
+  else { Write-Fail 'the flip reported changed:true but the manifest bytes did not move' }
+  $flippedText = [string](Get-Content -Path $manifest -Raw)
+  if ($flippedText -match '"path": "extra", "access": "readWrite"') { Write-Pass 'the manifest now declares extra as readWrite, in place' }
+  else { Write-Fail "the manifest did not gain the explicit readWrite for extra: $flippedText" }
+  $stateAfterFlip = Invoke-OctopusApi $base 'workspace.state' $stateBody
+  Assert-Status $stateAfterFlip 200 'workspace.state after the padlock change (the host re-activated the manifest)'
+  if ($stateAfterFlip.status -eq 200) {
+    # Parse rather than regex-match: the snapshot lists several roots, and only the
+    # one LABELLED extra may report the new level.
+    $snapshot = $null
+    try { $snapshot = ($stateAfterFlip.body | ConvertFrom-Json).value.workspace } catch { $snapshot = $null }
+    if ($null -ne $snapshot) {
+      $flippedRoot = @($snapshot.roots | Where-Object { $_.label -eq 'extra' })
+      if ($flippedRoot.Count -eq 1 -and $flippedRoot[0].access -eq 'readWrite') { Write-Pass 'the re-activated snapshot reports the flipped root as readWrite' }
+      else { Write-Fail "the snapshot does not report extra as readWrite: $($stateAfterFlip.body)" }
+    } else {
+      Write-Fail "workspace.state did not answer a workspace snapshot: $($stateAfterFlip.body)"
+    }
+  }
+  $repeated = Invoke-OctopusApi $base 'workspace.setFolderAccess' (Body @{ sessionId = $session; path = $extra; access = 'readWrite' })
+  Assert-Status $repeated 200 'workspace.setFolderAccess for a root already at that level'
+  if ($repeated.status -eq 200 -and $repeated.body -match '"changed":false') { Write-Pass 'the second flip reports changed:false instead of rewriting' }
+  elseif ($repeated.status -eq 200) { Write-Fail "the second flip was not idempotent: $($repeated.body)" }
+  $hashAfterRepeat = (Get-FileHash -Path $manifest -Algorithm SHA256).Hash
+  if ($hashAfterRepeat -eq $hashFlipped) { Write-Pass 'the idempotent flip left the manifest byte-identical (nothing was written)' }
+  else { Write-Fail "the idempotent flip changed the manifest ($hashFlipped -> $hashAfterRepeat)" }
+
+  Write-Step 'route probes: removing a folder from the active space'
+  # The third entry to the ONE transaction behind all three routes, and the only
+  # edit that can change the SET of roots. The probe list mirrors the two blocks
+  # above: the refusals, the deletion itself, the sidecar that holds the
+  # pre-removal bytes, the manifest text, the re-activated snapshot, the repeat,
+  # and the schema floor that forbids emptying the array.
+  $hashBeforeRemoval = (Get-FileHash -Path $manifest -Algorithm SHA256).Hash
+  Assert-Status (Invoke-OctopusApi $base 'workspace.removeFolder' (Body @{ sessionId = $session; path = $outside })) 400 'workspace.removeFolder refuses a path outside the space (400)'
+  # The session cwd is in every snapshot as the implicit root, but no manifest entry
+  # declares it: there is no declaration that could be deleted for it.
+  Assert-Status (Invoke-OctopusApi $base 'workspace.removeFolder' (Body @{ sessionId = $session; path = $fx })) 400 'workspace.removeFolder refuses the implicit session root (400)'
+  $hashAfterRemovalRefusals = (Get-FileHash -Path $manifest -Algorithm SHA256).Hash
+  if ($hashAfterRemovalRefusals -eq $hashBeforeRemoval) { Write-Pass 'the two refused removals left the manifest byte-identical' }
+  else { Write-Fail 'a refused removal still wrote the manifest' }
+
+  $removed = Invoke-OctopusApi $base 'workspace.removeFolder' (Body @{ sessionId = $session; path = $extra })
+  Assert-Status $removed 200 'workspace.removeFolder deletes a declared entry'
+  if ($removed.status -eq 200) {
+    if ($removed.body -match '"changed":true,"label":"extra"') { Write-Pass 'the removal is reported as changed, and names the removed folder' }
+    else { Write-Fail "the removal was not reported for extra: $($removed.body)" }
+    if ($removed.body -match '"backup":"([^"]+)"') {
+      $removalBackup = $Matches[1] -replace '\\\\', '\'
+      if ((Test-Path -LiteralPath $removalBackup) -and $removalBackup.StartsWith($manifest) -and $removalBackup.EndsWith('.octopus-backup')) {
+        Write-Pass "the removal left a sidecar backup: $(Split-Path -Leaf $removalBackup)"
+        # A backup NAME carries only a second-resolution stamp, so an earlier probe in
+        # the same second writes the same name. Its CONTENT is what proves this one is
+        # fresh: it has to be the manifest as it was just before the removal.
+        $removalBackupHash = (Get-FileHash -Path $removalBackup -Algorithm SHA256).Hash
+        if ($removalBackupHash -eq $hashBeforeRemoval) { Write-Pass 'the removal backup holds the pre-removal manifest, byte for byte' }
+        else { Write-Fail 'the removal backup does not hold the pre-removal manifest' }
+      } else {
+        Write-Fail "the reported backup is not a sidecar next to the manifest: $removalBackup"
+      }
+    } else {
+      Write-Fail "the removal reported no backup: $($removed.body)"
+    }
+  }
+  $hashAfterRemoval = (Get-FileHash -Path $manifest -Algorithm SHA256).Hash
+  if ($hashBeforeRemoval -ne $hashAfterRemoval) { Write-Pass 'the removal really rewrote the manifest (the bytes moved)' }
+  else { Write-Fail 'the removal reported changed:true but the manifest bytes did not move' }
+  $removedText = [string](Get-Content -Path $manifest -Raw)
+  # The exact ENTRY text, not a loose 'extra' match: the fixture DIRECTORY is named
+  # extra too and stays on disk, so only the declaration may be gone.
+  if (-not $removedText.Contains('{ "path": "extra", "access": "readWrite" }')) { Write-Pass 'the manifest no longer declares extra (its exact entry text is gone)' }
+  else { Write-Fail "the manifest still declares extra: $removedText" }
+  if ($removedText.Contains('"path": "ro"') -and $removedText.Contains('"path": "rw"')) { Write-Pass 'the other declared roots survived the removal' }
+  else { Write-Fail "the removal lost another entry: $removedText" }
+  if (-not $removedText.Contains(',,')) { Write-Pass 'the removal left no doubled separator comma' }
+  else { Write-Fail "the removal produced a doubled comma: $removedText" }
+  $stateAfterRemoval = Invoke-OctopusApi $base 'workspace.state' $stateBody
+  Assert-Status $stateAfterRemoval 200 'workspace.state after the removal (the host re-activated the manifest)'
+  if ($stateAfterRemoval.status -eq 200) {
+    # Parse rather than regex-match: the removed DIRECTORY is still on disk, so only
+    # the roots list can say whether the declaration is gone.
+    $removedSnapshot = $null
+    try { $removedSnapshot = ($stateAfterRemoval.body | ConvertFrom-Json).value.workspace } catch { $removedSnapshot = $null }
+    if ($null -ne $removedSnapshot) {
+      if (@($removedSnapshot.roots | Where-Object { $_.label -eq 'extra' }).Count -eq 0) { Write-Pass 'the re-activated snapshot no longer lists the removed root' }
+      else { Write-Fail "the snapshot still lists extra: $($stateAfterRemoval.body)" }
+    } else {
+      Write-Fail "workspace.state did not answer a workspace snapshot: $($stateAfterRemoval.body)"
+    }
+  }
+  Assert-Status (Invoke-OctopusApi $base 'workspace.removeFolder' (Body @{ sessionId = $session; path = $extra })) 400 'workspace.removeFolder refuses a second removal of the same path (400)'
+  $hashAfterSecondRemoval = (Get-FileHash -Path $manifest -Algorithm SHA256).Hash
+  if ($hashAfterSecondRemoval -eq $hashAfterRemoval) { Write-Pass 'the refused second removal wrote nothing' }
+  else { Write-Fail 'the refused second removal still wrote the manifest' }
+
+  # The floor the schema puts under this route: a manifest must declare at least one
+  # folder, so the ONLY entry cannot be dropped. A second, single-entry manifest is
+  # activated just for this probe; it replaces the space above, which has by now
+  # passed every assertion it was written for.
+  $single = Join-Path $fx 'single.dsh-octopus'
+  $singleJson = '{ "name": "smoke-single", "folders": [ { "path": "extra" } ] }'
+  [System.IO.File]::WriteAllText($single, $singleJson, (New-Object System.Text.UTF8Encoding($false)))
+  Assert-Status (Invoke-OctopusApi $base 'workspace.activate' (Body @{ sessionId = $session; path = $single; cwd = $fx })) 200 'workspace.activate for the single-entry fixture'
+  $hashSingleBefore = (Get-FileHash -Path $single -Algorithm SHA256).Hash
+  Assert-Status (Invoke-OctopusApi $base 'workspace.removeFolder' (Body @{ sessionId = $session; path = $extra })) 400 'workspace.removeFolder refuses to remove the only declared folder (400)'
+  $hashSingleAfter = (Get-FileHash -Path $single -Algorithm SHA256).Hash
+  if ($hashSingleAfter -eq $hashSingleBefore) { Write-Pass 'the refusal left the single-entry manifest byte-identical' }
+  else { Write-Fail 'the refused removal of the only entry still wrote the manifest' }
+  $singleBackups = @(Get-ChildItem -Path $fx -Filter 'single.dsh-octopus*octopus-backup' -File)
+  if ($singleBackups.Count -eq 0) { Write-Pass 'the refusal left no sidecar next to the single-entry manifest' }
+  else { Write-Fail "the refusal left $($singleBackups.Count) sidecar(s) behind" }
+  $stateAfterOnly = Invoke-OctopusApi $base 'workspace.state' $stateBody
+  Assert-Status $stateAfterOnly 200 'workspace.state after the refused removal (the space is unchanged)'
+  if ($stateAfterOnly.status -eq 200) {
+    $onlySnapshot = $null
+    try { $onlySnapshot = ($stateAfterOnly.body | ConvertFrom-Json).value.workspace } catch { $onlySnapshot = $null }
+    if ($null -ne $onlySnapshot -and $onlySnapshot.name -eq 'smoke-single' -and @($onlySnapshot.roots | Where-Object { $_.label -eq 'extra' }).Count -eq 1) {
+      Write-Pass 'the refused removal left the operation space active, with its root'
+    } else {
+      Write-Fail "the space did not survive the refused removal: $($stateAfterOnly.body)"
+    }
+  }
+
   Assert-Status (Invoke-OctopusApi $base 'workspace.deactivate' $stateBody) 200 'workspace.deactivate'
   Assert-Status (Invoke-OctopusApi $base 'workspace.state' $stateBody) 200 'workspace.state after deactivate'
 

@@ -89,3 +89,137 @@ export function Tooltip({ label, children }: {
   const text = typeof label === 'function' ? label() : label
   return createElement('span', { 'data-tooltip-label': text ?? '' }, children)
 }
+
+/** One entry of the stand-in menu: rows carry their label, non-rows their type. */
+export interface MenuEntry {
+  id: string
+  label?: ReactNode
+  disabled?: boolean
+  type?: 'separator' | 'label'
+  text?: string
+}
+
+/**
+ * Stand-in for the platform menu. The real component portals a card, walks the
+ * rows with the keyboard and returns focus on close; a test only needs to know
+ * WHICH rows and WHICH disabled flags reached it, so the stand-in renders them as
+ * attributes and exposes the selection callback as a real button per row.
+ * @param props.items - the data rows the tab built.
+ * @param props.open - whether the card is showing.
+ * @param props.onSelect - row activation callback.
+ * @param props.onClose - close callback.
+ * @param props.children - component-rendered rows (unused by this plugin).
+ * @returns a list of rows, or null while closed.
+ */
+export function Menu({ items, open, onSelect, onClose, children }: {
+  items?: readonly MenuEntry[] | undefined
+  open?: boolean | undefined
+  onSelect?: ((id: string) => void) | undefined
+  onClose?: (() => void) | undefined
+  children?: ReactNode | undefined
+  [key: string]: unknown
+}): ReactElement | null {
+  if (open !== true) return null
+  return createElement(
+    'div',
+    { 'data-menu': 'open', 'data-on-close': onClose === undefined ? '' : 'set' },
+    (items ?? []).map((entry) => createElement(
+      'button',
+      {
+        key: entry.id,
+        type: 'button',
+        'data-menu-row': entry.id,
+        'data-menu-kind': entry.type ?? 'item',
+        'data-menu-text': entry.text ?? '',
+        'data-menu-disabled': entry.disabled === true ? 'true' : 'false',
+        onClick: () => { onSelect?.(entry.id) },
+      },
+      entry.text ?? (typeof entry.label === 'string' ? entry.label : entry.id),
+    )),
+    children,
+  )
+}
+
+/**
+ * Stand-in for the component-rendered menu row: renders the label it was given
+ * and reports its activation, which is the part the plugin owns.
+ * @param props.children - the row label.
+ * @param props.onSelect - activation callback.
+ * @returns a button carrying the label.
+ */
+export function MenuItemButton({ children, onSelect, disabled }: {
+  children?: ReactNode | undefined
+  onSelect?: (() => void) | undefined
+  disabled?: boolean | undefined
+  [key: string]: unknown
+}): ReactElement {
+  return createElement(
+    'button',
+    {
+      type: 'button',
+      'data-menu-item-button': '',
+      'data-menu-disabled': disabled === true ? 'true' : 'false',
+      onClick: () => { onSelect?.() },
+    },
+    children,
+  )
+}
+
+/**
+ * Stand-in for the platform's risky-action confirmation. The real component is an
+ * in-page card whose primary action stays unavailable until the caller-controlled
+ * acknowledgement is ticked; a test only needs to see WHICH labels reached it and
+ * to drive its three callbacks, so the stand-in renders the labels as attributes
+ * and keeps the same "confirm is disabled until acknowledged" rule.
+ * @param props.open - whether the confirmation is showing.
+ * @param props.acknowledged - the acknowledgement state the owner controls.
+ * @param props.disabled - whether a running change blocks the primary action.
+ * @param props.onAcknowledgedChange - acknowledgement toggle.
+ * @param props.onConfirm - primary action.
+ * @param props.onCancel - cancel action.
+ * @returns the confirmation's surface, or null while closed.
+ */
+export function RiskConfirmation({
+  open, title, description, acknowledgeLabel, confirmLabel, acknowledged, disabled,
+  onAcknowledgedChange, onConfirm, onCancel,
+}: {
+  open?: boolean | undefined
+  title?: string | undefined
+  description?: string | undefined
+  acknowledgeLabel?: string | undefined
+  confirmLabel?: string | undefined
+  acknowledged?: boolean | undefined
+  disabled?: boolean | undefined
+  onAcknowledgedChange?: ((value: boolean) => void) | undefined
+  onConfirm?: (() => void) | undefined
+  onCancel?: (() => void) | undefined
+  [key: string]: unknown
+}): ReactElement | null {
+  if (open !== true) return null
+  return createElement(
+    'div',
+    {
+      'data-risk': 'open',
+      'data-risk-title': title ?? '',
+      'data-risk-description': description ?? '',
+      'data-risk-acknowledged': acknowledged === true ? 'true' : 'false',
+      'data-risk-disabled': disabled === true ? 'true' : 'false',
+    },
+    createElement('button', {
+      type: 'button',
+      'data-risk-acknowledge': acknowledgeLabel ?? '',
+      onClick: () => { onAcknowledgedChange?.(acknowledged !== true) },
+    }, acknowledgeLabel ?? ''),
+    createElement('button', {
+      type: 'button',
+      'data-risk-confirm': confirmLabel ?? '',
+      disabled: disabled === true || acknowledged !== true,
+      onClick: () => { onConfirm?.() },
+    }, confirmLabel ?? ''),
+    createElement('button', {
+      type: 'button',
+      'data-risk-cancel': '',
+      onClick: () => { onCancel?.() },
+    }, 'cancel'),
+  )
+}

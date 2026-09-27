@@ -12,11 +12,16 @@
  * exactly the constraint an operation space exists to lift.
  *
  * Read-only is enforced in two independent layers:
- * 1. the plugin itself never writes — there is no write route, so the fence is
- *    structural rather than a check that could be bypassed;
+ * 1. the plugin writes to exactly ONE thing — the manifest itself, through
+ *    `workspace.addFolder`, on an operator gesture after the host's native
+ *    directory chooser returned a folder (see manifest-edit.ts). It never writes
+ *    inside a declared root, so content in a readOnly root is still protected
+ *    structurally rather than by a check that could be bypassed;
  * 2. `workspace.violations` folds the session's own event log and reports write
  *    calls that landed in a readOnly root — whoever performed them — and
- *    `workspace.rollback` best-effort restores them.
+ *    `workspace.rollback` best-effort restores them. A manifest edit is not a
+ *    model call and never appears in that report; it is auditable in the file and
+ *    in the timestamped sidecar backup written next to it.
  *
  * The route passes the same browser-trust fence as the /api gateway:
  * Host-header loopback or the web runtime's `trustedHosts`, read per request
@@ -28,16 +33,20 @@
  * same containment fence as every read, so the active manifest stays the only
  * thing that decides which paths exist for this plugin at all.
  */
-import { stat } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
+import { dirname, isAbsolute, relative } from 'node:path'
 import type {
   Context, SidebarHttpRequest, SidebarSessionEvent, SidebarSessionPersistenceService,
 } from './context-types.ts'
 import { listDirectory, parentOf, requireAbsolute, rootLabel } from './fs-tree.ts'
+import { addFolderToManifest, removeFolderEntryInManifest, restoreManifestBackup, setFolderAccessInManifest } from './manifest-edit.ts'
 import { canRevealNative, revealInvocation, revealNative } from './native-reveal.ts'
+import { resolveSessionPath } from './session-path.ts'
 import { isTrustedApiRequest } from './trust-fence.ts'
 import { readJsonBody, requireString, SidebarError, writeError, writeJson, writeOk } from './wire.ts'
 import { ensureWsReadTarget } from './workspace-guards.ts'
-import { WsManifestError, wsReadBases } from './workspace-policy.ts'
+import { labelOf, resolveFolderPath, WsManifestError, wsReadBases } from './workspace-policy.ts'
+import { DEFAULT_WS_FOLDER_ACCESS, isWsAccess, normalizeWsPath } from './workspace-schema.ts'
 import { rollbackWsViolation, scanWsViolations } from './workspace-detector.ts'
 import { discoverManifests } from './workspace-discovery.ts'
 import { hostCaseInsensitive, snapshotOf, WorkspaceRegistry } from './workspace-state.ts'
@@ -152,6 +161,20 @@ async function eventsOfSession(
 }
 
 /**
+ * The `path` value written for a folder the operator picked: relative to the
+ * manifest's own directory when it stays inside it (the portable form the
+ * plugin's schema documents), absolute otherwise.
+ * @param target - canonical absolute path of the picked folder.
+ * @param baseDir - the manifest's directory.
+ * @returns the value to write into `folders[]`.
+ */
+function manifestPathValue(target: string, baseDir: string): string {
+  const rel = relative(baseDir, target)
+  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return target
+  return rel.replace(/\\/g, '/')
+}
+
+/**
  * Build the JSON API method table.
  * @param ctx - the host plugin context.
  * @param wsReg - the per-session operation-space registry.
@@ -221,6 +244,158 @@ function buildApi(ctx: Context, wsReg: WorkspaceRegistry): Record<string, ApiMet
           throw new SidebarError('bad-request', error.message, 400)
         }
         throw error
+      }
+    },
+    // ── The one route that writes to the user's disk ────────────────────────
+    // The client supplies ONLY the directory the operator picked in the host's
+    // native chooser. The manifest it lands in is the one this session already
+    // activated, so no request can aim the write at a file of its choosing, and
+    // the path is checked to be a real directory before anything is written.
+    'workspace.addFolder': async (payload) => {
+      const { sessionId, cwd } = await cwdOf(payload)
+      const active = wsReg.get(sessionId)
+      if (active === undefined) {
+        throw new SidebarError('forbidden', 'no operation space is active for this session', 403)
+      }
+      const requestedAccess = (payload as { access?: unknown } | null)?.access
+      if (requestedAccess !== undefined && !isWsAccess(requestedAccess)) {
+        throw new SidebarError('bad-request', `unknown access "${String(requestedAccess)}"`)
+      }
+      const requested = requireAbsolute(resolveSessionPath(cwd, requireString(payload, 'path')))
+      const info = await stat(requested).catch(() => undefined)
+      if (info === undefined || !info.isDirectory()) {
+        throw new SidebarError('bad-request', `"${requested}" is not a directory`, 400)
+      }
+      const canonical = await realpath(requested).catch(() => requested)
+      const normalized = normalizeWsPath(canonical, active.ci)
+      const declared = active.roots.find(root => normalizeWsPath(root.realPath, active.ci) === normalized)
+      if (declared !== undefined) {
+        // Already part of the space: an ordinary answer, not a failure.
+        return { workspace: snapshotOf(active), added: false, label: declared.label }
+      }
+      const edit = await addFolderToManifest(active.manifestPath, {
+        path: manifestPathValue(canonical, dirname(active.manifestPath)),
+        access: requestedAccess ?? DEFAULT_WS_FOLDER_ACCESS,
+      })
+      // Re-activate with the ORIGINAL timestamp: the violation scan uses it as a
+      // time floor, and adding a folder must not hide earlier writes. A policy
+      // that cannot be built from the edited file restores the backup, so the
+      // operator is never left with a manifest the plugin refuses.
+      const rebuilt = await wsReg
+        .activate(sessionId, active.manifestPath, cwd, active.ci, active.activatedAt)
+        .catch(async (error: unknown) => {
+          await restoreManifestBackup(edit.backupPath, active.manifestPath).catch(() => { /* reported below */ })
+          throw error
+        })
+      return {
+        workspace: snapshotOf(rebuilt),
+        added: true,
+        label: labelOf(canonical),
+        backup: edit.backupPath,
+      }
+    },
+    // ── The same write point, reached from a row's padlock ──────────────────
+    // Clicking the padlock on a declared root asks for the SAME kind of edit as
+    // adding a folder does, one entry at a time: the client names a path the
+    // snapshot already showed it plus the level it wants, and the host decides
+    // which manifest entry that is. A root the manifest does not declare — the
+    // session cwd's implicit root — is refused rather than guessed at, because
+    // there would be no entry to persist the change in.
+    'workspace.setFolderAccess': async (payload) => {
+      const { sessionId, cwd } = await cwdOf(payload)
+      const active = wsReg.get(sessionId)
+      if (active === undefined) {
+        throw new SidebarError('forbidden', 'no operation space is active for this session', 403)
+      }
+      const requestedAccess = (payload as { access?: unknown } | null)?.access
+      if (!isWsAccess(requestedAccess)) {
+        throw new SidebarError('bad-request', `unknown access "${String(requestedAccess)}"`)
+      }
+      const requested = requireAbsolute(resolveSessionPath(cwd, requireString(payload, 'path')))
+      const normalized = normalizeWsPath(requested, active.ci)
+      const target = active.roots.find(root => normalizeWsPath(root.path, active.ci) === normalized
+        || normalizeWsPath(root.realPath, active.ci) === normalized)
+      if (target === undefined) {
+        throw new SidebarError('bad-request', `"${requested}" is not a root of the active operation space`, 400)
+      }
+      if (!target.listed) {
+        throw new SidebarError('bad-request', `"${target.path}" is not declared in the manifest`, 400)
+      }
+      // The entry is found with the SAME resolution rule the policy used to build
+      // this root, so a relative `path` in the manifest still matches its entry.
+      const baseDir = dirname(active.manifestPath)
+      const matches = (rawPath: string): boolean =>
+        normalizeWsPath(resolveFolderPath(rawPath, baseDir), active.ci) === normalized
+      const edit = await setFolderAccessInManifest(active.manifestPath, matches, requestedAccess)
+        .catch((error: unknown) => {
+          if (error instanceof WsManifestError) throw new SidebarError('bad-request', error.message, 400)
+          throw error
+        })
+      if (!edit.changed) {
+        // Already declared at that level: an ordinary answer, not a failure — and
+        // nothing was written, so there is no backup to report either.
+        return { workspace: snapshotOf(active), changed: false, label: target.label }
+      }
+      // Re-activated with the ORIGINAL timestamp, for the same reason the add
+      // route does: the violation scan uses it as a time floor, and changing a
+      // permission must not hide (or invent) writes around the moment of change.
+      const rebuilt = await wsReg
+        .activate(sessionId, active.manifestPath, cwd, active.ci, active.activatedAt)
+        .catch(async (error: unknown) => {
+          await restoreManifestBackup(edit.backupPath, active.manifestPath).catch(() => { /* reported below */ })
+          throw error
+        })
+      return {
+        workspace: snapshotOf(rebuilt),
+        changed: true,
+        label: target.label,
+        backup: edit.backupPath,
+      }
+    },
+    // ── The same write point again, reached from a row's context menu ───────
+    // Removing a folder deletes ONE DECLARATION; the folder on disk is never
+    // touched. A root the manifest does not declare cannot be removed at all:
+    // the schema has no way to say "not this folder", so the implicit cwd root
+    // is refused rather than pretended away. (Removing a declared entry that
+    // happens to BE the cwd makes the policy append that implicit root again —
+    // the answer's snapshot shows it, and the client says so out loud.)
+    'workspace.removeFolder': async (payload) => {
+      const { sessionId, cwd } = await cwdOf(payload)
+      const active = wsReg.get(sessionId)
+      if (active === undefined) {
+        throw new SidebarError('forbidden', 'no operation space is active for this session', 403)
+      }
+      const requested = requireAbsolute(resolveSessionPath(cwd, requireString(payload, 'path')))
+      const normalized = normalizeWsPath(requested, active.ci)
+      const target = active.roots.find(root => normalizeWsPath(root.path, active.ci) === normalized
+        || normalizeWsPath(root.realPath, active.ci) === normalized)
+      if (target === undefined) {
+        throw new SidebarError('bad-request', `"${requested}" is not a root of the active operation space`, 400)
+      }
+      if (!target.listed) {
+        throw new SidebarError('bad-request', `"${target.path}" is not declared in the manifest`, 400)
+      }
+      const baseDir = dirname(active.manifestPath)
+      const matches = (rawPath: string): boolean =>
+        normalizeWsPath(resolveFolderPath(rawPath, baseDir), active.ci) === normalized
+      const edit = await removeFolderEntryInManifest(active.manifestPath, matches)
+        .catch((error: unknown) => {
+          if (error instanceof WsManifestError) throw new SidebarError('bad-request', error.message, 400)
+          throw error
+        })
+      // Same rule as the two paths above: re-activate with the ORIGINAL
+      // timestamp, so the violation scan's time floor does not move.
+      const rebuilt = await wsReg
+        .activate(sessionId, active.manifestPath, cwd, active.ci, active.activatedAt)
+        .catch(async (error: unknown) => {
+          await restoreManifestBackup(edit.backupPath, active.manifestPath).catch(() => { /* reported below */ })
+          throw error
+        })
+      return {
+        workspace: snapshotOf(rebuilt),
+        changed: true,
+        label: target.label,
+        backup: edit.backupPath,
       }
     },
     'workspace.deactivate': async (payload) => {
