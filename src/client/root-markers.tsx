@@ -1,9 +1,13 @@
 /**
- * The two markers at the end of a root folder row.
+ * The markers a root folder row draws.
  *
- * `ReadOnlyLock` marks a read-only root, exactly as the pre-collapse workbench
- * drew it, and `PathBadge` is the circled exclamation that reveals the root's
- * absolute path on hover.
+ * `ReadOnlyLock` is the padlock beside the name, exactly as the pre-collapse
+ * workbench drew it, and `PathBadge` is the circled ⓘ that reveals the
+ * root's absolute path. The two row-level wrappers are deliberate: the padlock's
+ * presence is a permission decision worth testing on its own
+ * ({@link RootPermissionMarker}), and the badge's PLACE in the row is a layout
+ * decision ({@link RootTrailingBadge}) — it is the last thing in the row, after
+ * the desktop action's slot.
  *
  * WHY THE LOCK IS INLINE SVG HERE. The lock glyph used to come from
  * `react-icons/vsc`, which was a RUNTIME dependency; collapsing this package to
@@ -29,8 +33,9 @@
  * here: the root list scrolls inside an `overflow: auto` container, and a
  * non-portaled bubble would be clipped by it.
  */
-import { IconWarningOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconInfoOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ReactElement } from 'react'
+import { LABEL_SECONDARY, ROW_TOOL_ICON_SIZE } from './tree-metrics.ts'
 
 /** Keyhole dot of the codicon lock. */
 const LOCK_DOT =
@@ -51,6 +56,11 @@ const AFTER_SEPARATOR = /([\\/])/g
 
 /**
  * The padlock marking a read-only root.
+ *
+ * IT CARRIES NO SPACING OF ITS OWN. The row's own `gap` (the built-in's 6px,
+ * see ./tree-metrics.ts) is what separates it from the name; a `margin-left`
+ * here would add to that gap and make the padlock 12px away from the name while
+ * every other pair of row elements sits 6px apart.
  * @param props.label - accessible name (the row already explains the permission visually).
  * @param props.size - rendered edge in pixels; 12 matches the pre-collapse marker.
  * @returns the lock glyph.
@@ -64,7 +74,7 @@ export function ReadOnlyLock({ label, size = 12 }: { label: string; size?: numbe
       fill="currentColor"
       role="img"
       aria-label={label}
-      style={{ flex: 'none', marginLeft: 6, color: 'var(--dsw-alias-label-secondary)' }}
+      style={{ flex: 'none', color: LABEL_SECONDARY }}
     >
       <path d={LOCK_DOT} />
       <path fillRule="evenodd" clipRule="evenodd" d={LOCK_BODY} />
@@ -73,7 +83,17 @@ export function ReadOnlyLock({ label, size = 12 }: { label: string; size?: numbe
 }
 
 /**
- * The absolute-path affordance: a circled exclamation that reveals the path.
+ * The absolute-path affordance: a circled ⓘ that reveals the path.
+ *
+ * WHY THE ⓘ, AND WHY NOT THE OTHER TWO. The platform ships three glyphs that could
+ * carry "there is something to know about this row": a circled exclamation
+ * (`IconWarningOutlineRegular`), a circled triangle
+ * (`IconWarningTriangleOutlineRegular`) and a circled ⓘ (`IconInfoOutlineRegular`).
+ * This badge is neither a fault nor a warning — nothing is wrong with the root, the
+ * badge only says "hover me for the absolute path" — so it wears the annotation
+ * glyph and leaves the two warning glyphs meaning what they mean everywhere else in
+ * DSH. It is drawn at {@link ROW_TOOL_ICON_SIZE} so it matches the desktop action it
+ * stands next to, and coloured with the same token that action rests at.
  * @param props.path - the root's absolute path, shown verbatim in the bubble.
  * @param props.label - accessible name for the glyph.
  * @returns the badge.
@@ -84,39 +104,52 @@ export function PathBadge({ path, label }: { path: string; label: string }): Rea
       <span
         role="img"
         aria-label={label}
-        style={{ display: 'inline-flex', alignItems: 'center', flex: 'none', cursor: 'help' }}
+        style={{ display: 'inline-flex', alignItems: 'center', flex: 'none', cursor: 'help', color: LABEL_SECONDARY }}
       >
-        <IconWarningOutlineRegular size={14} />
+        <IconInfoOutlineRegular size={ROW_TOOL_ICON_SIZE} />
       </span>
     </Tooltip>
   )
 }
 
 /**
- * Everything a root folder row shows after its label: the padlock for a
- * read-only root, then the path badge pinned to the row's right edge. A
- * read-write root deliberately shows NO permission marker — that is the
- * pre-collapse behaviour, and the platform glyphs that briefly replaced it
- * (a shield with a check, and a shield with an exclamation) read as two
- * different kinds of warning rather than as one permission state.
+ * The padlock a READ-ONLY root shows — and nothing at all for a read-write root.
+ *
+ * WHY THE CHOICE LIVES HERE. A read-write root must carry NO permission marker
+ * (the platform glyphs that briefly replaced the padlock read as two different
+ * kinds of warning rather than as one permission state), and that is the exact
+ * invariant that regressed once already. Keeping the decision in a component the
+ * suite can render on its own is what keeps it enforceable instead of something a
+ * reviewer has to notice by eye.
  * @param props.readOnly - whether the root was declared read-only.
- * @param props.path - the root's absolute path.
- * @param props.lockLabel - accessible name for the padlock.
- * @param props.pathLabel - accessible name for the path badge.
- * @returns the marker pair.
+ * @param props.label - accessible name for the padlock.
+ * @returns the padlock, or nothing.
  */
-export function RootRowMarkers({ readOnly, path, lockLabel, pathLabel }: {
-  readOnly: boolean
-  path: string
-  lockLabel: string
-  pathLabel: string
-}): ReactElement {
+export function RootPermissionMarker({ readOnly, label }: { readOnly: boolean; label: string }): ReactElement | null {
+  return readOnly ? <ReadOnlyLock label={label} /> : null
+}
+
+/**
+ * The path badge as it sits in a row: OUTSIDE the row's own button, after the
+ * desktop action's fixed slot, at the row's trailing edge.
+ *
+ * WHY THERE. The desktop action has to be a real `<button>`, and a `<button>`
+ * inside another one is invalid markup, so it lives in a slot beside the row
+ * button. The badge therefore comes after that slot — which is the order the user
+ * asked for: the desktop action first, the path badge last. Three consequences are
+ * load-bearing: the row wrapper owns the 6px gap and the 10px right edge padding,
+ * so the badge ends exactly where the built-in's row content ends and sits the
+ * built-in's 6px away from the action; because the slot keeps its width whether or
+ * not the action is shown, the badge never moves on hover; and because the badge is
+ * not inside the row button, clicking it no longer toggles the folder underneath.
+ * @param props.path - the root's absolute path, shown verbatim in the bubble.
+ * @param props.pathLabel - accessible name for the glyph.
+ * @returns the badge in its row wrapper.
+ */
+export function RootTrailingBadge({ path, pathLabel }: { path: string; pathLabel: string }): ReactElement {
   return (
-    <>
-      {readOnly && <ReadOnlyLock label={lockLabel} />}
-      <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', opacity: 0.6 }}>
-        <PathBadge path={path} label={pathLabel} />
-      </span>
-    </>
+    <span style={{ display: 'flex', alignItems: 'center', flex: 'none' }}>
+      <PathBadge path={path} label={pathLabel} />
+    </span>
   )
 }

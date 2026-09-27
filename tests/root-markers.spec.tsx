@@ -1,5 +1,6 @@
 /**
- * The two markers at the end of a root folder row.
+ * The markers a root folder row draws: the padlock beside its name, and the path
+ * badge at the row's trailing edge (after the desktop action's slot).
  *
  * The padlock is the regression this file exists for: it disappeared once
  * already, when the package collapsed to zero runtime dependencies and the
@@ -11,7 +12,7 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { PathBadge, ReadOnlyLock, RootRowMarkers } from '../src/client/root-markers.tsx'
+import { PathBadge, ReadOnlyLock, RootPermissionMarker, RootTrailingBadge } from '../src/client/root-markers.tsx'
 
 /** A root outside the session workspace, with the separators a Windows path has. */
 const ROOT = 'C:\\Users\\demo\\Desktop\\新人培养'
@@ -39,39 +40,42 @@ describe('read-only padlock', () => {
     expect(html).toContain('color:var(--dsw-alias-label-secondary)')
     expect(html).toContain('role="img"')
     expect(html).toContain('aria-label="只读文件夹（不可写入）"')
+    // No spacing of its own: the row's 6px gap is what separates the padlock from
+    // the name, exactly like every other pair of elements in a row.
+    expect(html).not.toContain('margin-left')
   })
 })
 
 describe('root row markers', () => {
   it('marks a read-only root with the padlock', () => {
-    const html = renderToStaticMarkup(
-      <RootRowMarkers readOnly path={ROOT} lockLabel="只读文件夹（不可写入）" pathLabel="文件夹绝对路径" />,
-    )
+    const html = renderToStaticMarkup(<RootPermissionMarker readOnly label="只读文件夹（不可写入）" />)
     expect(paths(html)).toBe(2)
     expect(html).toContain('aria-label="只读文件夹（不可写入）"')
   })
 
   it('leaves a read-write root without any permission marker', () => {
-    const html = renderToStaticMarkup(
-      <RootRowMarkers readOnly={false} path={ROOT} lockLabel="只读文件夹（不可写入）" pathLabel="文件夹绝对路径" />,
-    )
+    const html = renderToStaticMarkup(<RootPermissionMarker readOnly={false} label="只读文件夹（不可写入）" />)
     expect(html).not.toContain('<svg')
     expect(paths(html)).toBe(0)
     expect(html).not.toContain('只读文件夹（不可写入）')
   })
 
-  it('shows the path badge on every root and hands it the absolute path verbatim', () => {
-    for (const readOnly of [true, false]) {
-      const html = renderToStaticMarkup(
-        <RootRowMarkers readOnly={readOnly} path={ROOT} lockLabel="只读文件夹（不可写入）" pathLabel="文件夹绝对路径" />,
-      )
-      expect(html).toContain('role="img"')
-      expect(html).toContain('aria-label="文件夹绝对路径"')
-      // The bubble text is the path itself: stripping the wrapping hints must
-      // reproduce it exactly, so no separator or character was altered.
-      const label = /data-tooltip-label="([^"]*)"/.exec(html)?.[1] ?? ''
-      expect(visible(label)).toBe(ROOT)
-    }
+  it('puts the path badge at the row trailing edge and hands it the absolute path verbatim', () => {
+    const html = renderToStaticMarkup(<RootTrailingBadge path={ROOT} pathLabel="文件夹绝对路径" />)
+    expect(html).toContain('role="img"')
+    expect(html).toContain('aria-label="文件夹绝对路径"')
+    // The badge must not grow or shrink: it and the desktop action's slot are the
+    // row's two fixed trailing elements, and the row button takes the free space
+    // (the wrapper's gap and right padding, not an auto margin, place them).
+    expect(html).toContain('flex:none')
+    // Its weight is a token, not an opacity: the badge and the desktop action it
+    // stands next to must rest at the same grey.
+    expect(html).toContain('color:var(--dsw-alias-label-secondary)')
+    expect(html).not.toContain('opacity')
+    // The bubble text is the path itself: stripping the wrapping hints must
+    // reproduce it exactly, so no separator or character was altered.
+    const label = /data-tooltip-label="([^"]*)"/.exec(html)?.[1] ?? ''
+    expect(visible(label)).toBe(ROOT)
   })
 
   it('inserts wrapping hints and nothing else into the bubble text', () => {

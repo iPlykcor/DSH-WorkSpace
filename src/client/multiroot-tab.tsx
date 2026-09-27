@@ -30,12 +30,21 @@
  * a host restart empties it. The host is authoritative whenever it reports a
  * workspace; this plugin's own localStorage key exists only to re-activate the
  * manifest the user had applied after such a restart.
+ *
+ * IT IS DRAWN LIKE DSH'S OWN 工作区文件 PANE. Same shared components (the
+ * product's `FileTypeIcon` + `classifyFileType` for files, its Regular folder
+ * glyphs for directories, its `PathLabel` in the header), same row order, and
+ * the same numbers — which live in exactly one place, ./tree-metrics.ts, where
+ * the built-in's own CSS is cited and pinned by tests.
  */
 import {
-  IconCloseFillMedium,
-  IconFolderCloseMedium,
-  IconFolderOpenMedium,
-  IconRefreshOutlineMedium,
+  FileTypeIcon,
+  IconCloseFillRegular,
+  IconFolderCloseRegular,
+  IconFolderOpenRegular,
+  IconRefreshOutlineRegular,
+  PathLabel,
+  classifyFileType,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useCallback, useEffect, useRef, useState, type FocusEvent, type ReactNode } from 'react'
 import type { Context, SidebarRightFace, SidebarRightTabsFace } from '../context-types.ts'
@@ -44,10 +53,30 @@ import {
   type FsEntry, type ManifestCandidate, type SessionScope, type WorkspaceSnapshot, type WorkspaceViolation,
 } from './api.ts'
 import { decideDiscovery } from './discovery-decision.ts'
+import { orderEntries } from './entry-order.ts'
 import { sessionFileAddress } from './file-address.ts'
 import { t } from './locales.ts'
 import { RevealButton } from './reveal-button.tsx'
-import { RootRowMarkers } from './root-markers.tsx'
+import { RootPermissionMarker, RootTrailingBadge } from './root-markers.tsx'
+import { ToolButton } from './tool-button.tsx'
+import {
+  LABEL_PRIMARY,
+  LABEL_SECONDARY,
+  LABEL_TERTIARY,
+  NOTE_FONT_SIZE,
+  TOOL_RADIUS,
+  bodyStyle,
+  dirIconStyle,
+  fileIconStyle,
+  headerStyle,
+  nameStyle,
+  noteStyle,
+  rowStyle,
+  rowWrapperStyle,
+  statusLineStyle,
+  statusStyle,
+  tabRootStyle,
+} from './tree-metrics.ts'
 
 /** Tab type identity: `id` keys the two slot seats, `kind` is what opens it. */
 const TAB_ID = 'octopus-operation-space'
@@ -55,24 +84,11 @@ const TAB_ID = 'octopus-operation-space'
 /** The page kind users open (a page type: no `patterns`, so it is opened by kind). */
 const TAB_KIND = 'octopusOperationSpace'
 
-/** Left indent per tree depth (px). */
-const INDENT = 12
-
 /** Read-only write report refresh cadence (ms). */
 const VIOLATION_POLL_MS = 5_000
 
 /** This plugin's own persisted-manifest key prefix (per session). */
 const STORAGE_PREFIX = 'dsh-octopus:v1:'
-
-/** Inline row styles shared by the tree (no CSS module reaches this surface). */
-const rowBase = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 6,
-  height: 24,
-  fontSize: 13,
-  color: 'var(--dsw-alias-label-primary)',
-} as const
 
 /** A tooltip/text error message from any thrown value. */
 function messageOf(failure: unknown): string {
@@ -453,34 +469,39 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
       },
     })
 
-    /** Render one directory's children (indented by depth). */
+    /** Render one directory's children (indented by depth, ordered like the built-in tree). */
     const renderRows = (parent: string, depth: number): ReactNode => {
       const entries = children.get(parent)
-      if (entries === undefined) {
-        return <div style={{ ...rowBase, paddingLeft: 10 + depth * INDENT, fontSize: 12, opacity: 0.6 }}>{t('loading')}</div>
-      }
-      if (entries.length === 0) {
-        return <div style={{ ...rowBase, paddingLeft: 10 + depth * INDENT, fontSize: 12, opacity: 0.5 }}>{t('emptyFolder')}</div>
-      }
-      return entries.map((entry) => {
+      // The built-in's own states, at its own metrics: a note line, never a row.
+      if (entries === undefined) return <div style={noteStyle}>{t('loading')}</div>
+      if (entries.length === 0) return <div style={noteStyle}>{t('emptyFolder')}</div>
+      return orderEntries(entries).map((entry) => {
         const open = expanded.has(entry.path)
         return (
-          <div key={entry.path} style={{ ...rowBase, width: '100%' }} {...rowActivity(entry.path)}>
+          <div key={entry.path} style={rowWrapperStyle(activeRow === entry.path)} {...rowActivity(entry.path)}>
             <button
               type="button"
               title={entry.path}
               aria-expanded={entry.isDir ? open : undefined}
-              style={{
-                ...rowBase,
-                flex: 1, minWidth: 0, border: 0, background: 'transparent', cursor: 'pointer', textAlign: 'left',
-                paddingLeft: 10 + depth * INDENT, opacity: entry.broken ? 0.5 : 1,
-              }}
+              style={rowStyle(depth, { opacity: entry.broken ? 0.5 : 1 })}
               onClick={() => { if (entry.isDir) toggle(entry.path); else openFile(entry.path) }}
             >
               {entry.isDir
-                ? (open ? <IconFolderOpenMedium size={14} /> : <IconFolderCloseMedium size={14} />)
-                : <span style={{ width: 14, flex: 'none' }} />}
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.name}</span>
+                ? (
+                  // Regular weight, no explicit size and the tertiary colour: this is
+                  // the glyph the built-in file tree draws for a directory.
+                  <span style={dirIconStyle}>
+                    {open ? <IconFolderOpenRegular /> : <IconFolderCloseRegular />}
+                  </span>
+                )
+                : (
+                  // The product's own classifier and category-coloured glyph, which is
+                  // exactly what the built-in pane shows for the same file name.
+                  <span style={fileIconStyle}>
+                    <FileTypeIcon kind={classifyFileType(entry.name)} size={16} />
+                  </span>
+                )}
+              <span style={nameStyle}>{entry.name}</span>
               {entry.isSymlink && <span style={{ fontSize: 11, opacity: 0.5 }}>↗</span>}
             </button>
             {/* A broken link has no target to hand to the desktop, and the host
@@ -499,22 +520,27 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
     }
 
     if (sessionId === undefined || sessionId === '' || workspace === undefined) {
-      return <div style={{ padding: 12, fontSize: 13, opacity: 0.7, color: 'var(--dsw-alias-label-primary)' }}>{t('loading')}</div>
+      return (
+        <div style={statusStyle}>
+          <p style={statusLineStyle}>{t('loading')}</p>
+        </div>
+      )
     }
     if (workspace === null) {
+      // The built-in's status panel, with this plugin's own controls inside it.
       return (
-        <div style={{ padding: 12, fontSize: 13, color: 'var(--dsw-alias-label-primary)' }}>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>{t('operationSpace')}</div>
-          <div style={{ opacity: 0.75, marginBottom: 10, lineHeight: 1.5 }}>{t('noWorkspace')}</div>
+        <div style={{ ...statusStyle, height: '100%', overflow: 'auto' }}>
+          <p style={{ ...statusLineStyle, color: LABEL_PRIMARY, marginBottom: 6 }}>{t('operationSpace')}</p>
+          <p style={{ ...statusLineStyle, marginBottom: 10 }}>{t('noWorkspace')}</p>
           {/* Auto-detection: opening this tab already scanned the session cwd,
               so a manifest sitting there needs no hand-typed path. The input
               below stays as the fallback for one that lives elsewhere. */}
-          {scanning && <div style={{ opacity: 0.7, marginBottom: 10 }}>{t('scanning')}</div>}
+          {scanning && <div style={noteStyle}>{t('scanning')}</div>}
           {!scanning && candidates !== undefined && (candidates.length === 0
-            ? <div style={{ opacity: 0.6, marginBottom: 10 }}>{t('scanNone')}</div>
+            ? <div style={noteStyle}>{t('scanNone')}</div>
             : (
               <div style={{ marginBottom: 10 }}>
-                <div style={{ opacity: 0.75, marginBottom: 6 }}>
+                <div style={noteStyle}>
                   {candidates.length === 1 ? t('scanOne') : t('scanPick', { n: candidates.length })}
                 </div>
                 {candidates.map((candidate) => (
@@ -523,19 +549,20 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
                     type="button"
                     title={candidate.path}
                     onClick={() => { applyManifest(candidate.path) }}
-                    style={{
-                      ...rowBase,
-                      width: '100%', border: 0, background: 'transparent', textAlign: 'left',
+                    style={rowStyle(0, {
+                      width: '100%',
+                      paddingLeft: 2,
+                      borderRadius: TOOL_RADIUS,
                       cursor: candidate.error === undefined ? 'pointer' : 'default',
-                      paddingLeft: 2, opacity: candidate.error === undefined ? 1 : 0.6,
-                    }}
+                      opacity: candidate.error === undefined ? 1 : 0.6,
+                    })}
                   >
-                    <IconFolderOpenMedium size={14} />
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span style={dirIconStyle}><IconFolderOpenRegular /></span>
+                    <span style={nameStyle}>
                       {candidate.name}
                     </span>
                     {candidate.name !== candidate.fileName && (
-                      <span style={{ fontSize: 11, opacity: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span style={{ fontSize: 11, opacity: 0.5, ...nameStyle }}>
                         {candidate.fileName}
                       </span>
                     )}
@@ -548,8 +575,8 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
                 ))}
               </div>
             ))}
-          {notice !== null && <div style={{ marginBottom: 10, opacity: 0.8 }}>{notice}</div>}
-          <div style={{ display: 'flex', gap: 6 }}>
+          {notice !== null && <div style={noteStyle}>{notice}</div>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <input
               value={manifestInput}
               onChange={(event) => { setManifestInput(event.target.value) }}
@@ -557,69 +584,57 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
               placeholder="C:\repo\demo.dsh-octopus"
               spellCheck={false}
               style={{
-                flex: 1, minWidth: 0, fontSize: 12, padding: '4px 6px', color: 'inherit',
+                flex: 1, minWidth: 0, fontSize: NOTE_FONT_SIZE, padding: '4px 6px', color: 'inherit',
                 background: 'transparent', border: '1px solid var(--dsw-alias-border-secondary, #666)', borderRadius: 4,
               }}
             />
-            <button type="button" onClick={() => { applyManifest(manifestInput) }} style={{ fontSize: 12, padding: '4px 10px', cursor: 'pointer' }}>
-              {t('workspaceApply')}
-            </button>
             <button
               type="button"
-              title={t('scanAgain')}
-              aria-label={t('scanAgain')}
-              onClick={() => { scan(scope) }}
-              style={{ display: 'flex', alignItems: 'center', fontSize: 12, padding: '4px 8px', cursor: 'pointer' }}
+              onClick={() => { applyManifest(manifestInput) }}
+              style={{ fontSize: NOTE_FONT_SIZE, padding: '4px 10px', cursor: 'pointer' }}
             >
-              <IconRefreshOutlineMedium size={14} />
+              {t('workspaceApply')}
             </button>
+            <ToolButton icon={IconRefreshOutlineRegular} label={t('scanAgain')} onClick={() => { scan(scope) }} />
           </div>
-          {error !== null && <div style={{ marginTop: 8, opacity: 0.85 }}>{error}</div>}
+          {error !== null && <div style={{ ...noteStyle, marginTop: 8 }}>{error}</div>}
         </div>
       )
     }
     return (
-      <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', flex: 'none' }}>
-          <span style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={workspace.manifestPath}>
-            {workspace.name}
+      <div style={tabRootStyle}>
+        <div style={headerStyle}>
+          {/* The built-in puts its ROOT PATH here through the shared `PathLabel`
+              (subdued directories, primary last segment, full path on hover).
+              This pane's root-equivalent is the manifest: it is the single source
+              of truth for every root below it, so it takes that slot. */}
+          <PathLabel path={workspace.manifestPath} style={{ flex: 1, minWidth: 0, marginRight: 12 }} />
+          <span style={{ flex: 'none', fontSize: NOTE_FONT_SIZE, color: LABEL_TERTIARY }}>
+            {t('workspaceRoots', { n: workspace.roots.length })}
           </span>
-          <span style={{ fontSize: 12, opacity: 0.6 }}>{t('workspaceRoots', { n: workspace.roots.length })}</span>
           {violations.length > 0 && (
             <button
               type="button"
               title={t('workspaceViolationsTitle')}
               aria-expanded={violationsOpen}
               onClick={() => { setViolationsOpen((open) => !open) }}
-              style={{ fontSize: 11, padding: '2px 8px', cursor: 'pointer', color: 'var(--dsw-alias-state-error-primary, #f2a1a1)' }}
+              style={{
+                flex: 'none', fontSize: NOTE_FONT_SIZE, padding: '3px 6px', cursor: 'pointer', border: 0,
+                background: 'transparent', borderRadius: TOOL_RADIUS,
+                color: 'var(--dsw-alias-state-error-primary, #f2a1a1)',
+              }}
             >
               {t('workspaceViolations', { n: violations.length })}
             </button>
           )}
-          <button
-            type="button"
-            title={t('refresh')}
-            aria-label={t('refresh')}
-            onClick={refresh}
-            style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', border: 0, background: 'transparent', cursor: 'pointer', color: 'inherit' }}
-          >
-            <IconRefreshOutlineMedium size={14} />
-          </button>
-          <button
-            type="button"
-            title={t('workspaceDeactivate')}
-            aria-label={t('workspaceDeactivate')}
-            onClick={deactivate}
-            style={{ display: 'flex', alignItems: 'center', border: 0, background: 'transparent', cursor: 'pointer', color: 'inherit' }}
-          >
-            <IconCloseFillMedium size={14} />
-          </button>
+          <ToolButton icon={IconRefreshOutlineRegular} label={t('refresh')} onClick={refresh} />
+          <ToolButton icon={IconCloseFillRegular} label={t('workspaceDeactivate')} onClick={deactivate} />
         </div>
         {violationsOpen && violations.length > 0 && (
           <div style={{ flex: 'none', padding: '0 10px 6px' }}>
             {violations.map((item) => (
-              <div key={item.callId} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '3px 0' }}>
-                <span style={{ opacity: 0.8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.path}>
+              <div key={item.callId} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: NOTE_FONT_SIZE, padding: '3px 0' }}>
+                <span style={{ ...nameStyle, color: LABEL_SECONDARY }} title={item.path}>
                   {t('workspaceViolationMeta', { root: item.rootLabel, kind: item.kind })}
                 </span>
                 {item.canRestore && (
@@ -631,9 +646,9 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
             ))}
           </div>
         )}
-        {notice !== null && <div style={{ flex: 'none', padding: '0 10px 6px', fontSize: 12, opacity: 0.7 }}>{notice}</div>}
-        {error !== null && <div style={{ flex: 'none', padding: '0 10px 6px', fontSize: 12, opacity: 0.85 }}>{error}</div>}
-        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', paddingBottom: 8 }}>
+        {notice !== null && <div style={{ ...noteStyle, flex: 'none' }}>{notice}</div>}
+        {error !== null && <div style={{ ...noteStyle, flex: 'none' }}>{error}</div>}
+        <div style={bodyStyle}>
           {workspace.roots.map((root) => {
             const open = expanded.has(root.path)
             const readOnly = root.access === 'readOnly'
@@ -641,27 +656,23 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
             const permission = readOnly ? t('workspaceFolderReadOnly') : root.path
             return (
               <div key={root.path}>
-                <div style={{ ...rowBase, width: '100%' }} {...rowActivity(root.path)}>
+                <div style={rowWrapperStyle(activeRow === root.path)} {...rowActivity(root.path)}>
                   <button
                     type="button"
                     title={missing ? `${permission} — ${t('workspaceMissingFolder')}` : permission}
                     aria-expanded={open}
-                    style={{
-                      ...rowBase,
-                      flex: 1, minWidth: 0, border: 0, background: 'transparent', cursor: 'pointer', textAlign: 'left',
-                      fontWeight: 600, opacity: missing ? 0.5 : 1,
-                    }}
+                    style={rowStyle(0, { opacity: missing ? 0.5 : 1 })}
                     onClick={() => { toggle(root.path) }}
                   >
-                    {open ? <IconFolderOpenMedium size={16} /> : <IconFolderCloseMedium size={16} />}
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{root.label}</span>
+                    <span style={dirIconStyle}>
+                      {open ? <IconFolderOpenRegular /> : <IconFolderCloseRegular />}
+                    </span>
+                    <span style={nameStyle}>{root.label}</span>
                     {missing && <span style={{ fontSize: 11, opacity: 0.55 }}>{t('workspaceMissingFolder')}</span>}
-                    <RootRowMarkers
-                      readOnly={readOnly}
-                      path={root.path}
-                      lockLabel={t('workspaceFolderReadOnly')}
-                      pathLabel={t('workspaceFolderPath')}
-                    />
+                    {/* The padlock stays beside the name (a permission marker);
+                        the path badge is the row's LAST element and is rendered
+                        outside this button, after the desktop action's slot. */}
+                    <RootPermissionMarker readOnly={readOnly} label={t('workspaceFolderReadOnly')} />
                   </button>
                   {/* A root that does not exist has nothing to open, and the host
                       would refuse it: the row offers no desktop action. */}
@@ -673,6 +684,7 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
                       visible={activeRow === root.path}
                     />
                   )}
+                  <RootTrailingBadge path={root.path} pathLabel={t('workspaceFolderPath')} />
                 </div>
                 {open && renderRows(root.path, 1)}
               </div>

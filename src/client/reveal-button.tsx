@@ -5,16 +5,23 @@
  * IT IS A REAL BUTTON, AND IT IS THE ROW BUTTON'S SIBLING. A `<button>` inside
  * another `<button>` is invalid markup and the click would belong to the inner
  * one anyway; keeping the action in a fixed-width slot next to the row button
- * also means the slot can appear on hover without shifting the row's label.
+ * also means the slot can appear on hover without shifting the row's label — or
+ * the row's trailing path badge, which is rendered after this slot for exactly
+ * that reason.
+ *
+ * IT WEARS THE BUILT-IN'S TOOL TREATMENT. `FileTypeIcon`, `PathLabel` and the
+ * row metrics that make this tab look like DSH's own 工作区文件 pane come from
+ * ./tree-metrics.ts; the action is the same button as that pane's header tools
+ * (./tool-button.tsx), only sized to fit a row ({@link ROW_TOOL_SIZE}) instead
+ * of a header.
  *
  * Visibility is the CALLER's decision: the row knows whether it is hovered or
  * focused, and this component deliberately knows nothing about that.
  */
 import { IconFolderOpenOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ReactNode } from 'react'
-
-/** Width of the action slot (px) — reserved whether or not the icon is shown. */
-const SLOT = 18
+import { ROW_TOOL_ICON_SIZE, ROW_TOOL_PADDING, ROW_TOOL_SIZE } from './tree-metrics.ts'
+import { ToolButton } from './tool-button.tsx'
 
 /** Props of one row's reveal action. */
 export interface RevealButtonProps {
@@ -35,33 +42,26 @@ export interface RevealButtonProps {
  */
 export function RevealButton({ path, label, onReveal, visible }: RevealButtonProps): ReactNode {
   return (
-    <span style={{ width: SLOT, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <span
+      style={{
+        width: ROW_TOOL_SIZE,
+        flex: 'none',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
       {visible && (
-        <button
-          type="button"
-          title={label}
-          aria-label={label}
-          onClick={(event) => {
-            // The row's own handler must not also read this click (the slot is a
-            // sibling today, so this is belt-and-braces rather than load-bearing).
-            event.stopPropagation()
-            onReveal(path)
-          }}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: SLOT,
-            height: 20,
-            padding: 0,
-            border: 0,
-            background: 'transparent',
-            color: 'var(--dsw-alias-label-secondary)',
-            cursor: 'pointer',
-          }}
-        >
-          <IconFolderOpenOutlineRegular size={14} />
-        </button>
+        <ToolButton
+          icon={IconFolderOpenOutlineRegular}
+          label={label}
+          // The row's own click handler lives on a sibling, never an ancestor,
+          // so the click needs no propagation guard.
+          onClick={() => { onReveal(path) }}
+          boxSize={ROW_TOOL_SIZE}
+          glyphSize={ROW_TOOL_ICON_SIZE}
+          padding={ROW_TOOL_PADDING}
+        />
       )}
     </span>
   )

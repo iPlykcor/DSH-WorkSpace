@@ -26,8 +26,9 @@ describe('row reveal action', () => {
     )
     expect(html).not.toContain('<button')
     expect(html).not.toContain('<svg')
-    // The reserved gap: the row must not reflow when the icon appears.
-    expect(html).toContain('width:18px')
+    // The reserved gap: the row must not reflow when the icon appears. It is
+    // the same box as the built-in pane's header tool, shrunk to fit a row.
+    expect(html).toContain('width:20px')
   })
 
   it('is a real, named button that does not carry the path as its visible text', () => {
@@ -41,5 +42,10 @@ describe('row reveal action', () => {
     // stubbed in tests (its stand-in icons render null), and the real names are
     // already pinned by `pnpm typecheck` against the package's declarations.
     expect(html).not.toContain(PATH)
+    // The built-in's `.tool` treatment: a fixed box and its radius token, so the
+    // row action and the pane header's tools read as the same control.
+    expect(html).toContain('width:20px')
+    expect(html).toContain('height:20px')
+    expect(html).toContain('border-radius:var(--dsw-radius-sm)')
   })
 })

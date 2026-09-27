@@ -25,17 +25,53 @@ interface IconProps {
 const StubIcon = (_props: IconProps): null => null
 
 /**
- * The icons the operation-space tab and its row actions render with. The
- * `PermissionIcon*` pair is gone from both the tab and this stub (the tab draws
- * its own padlock and uses the circled exclamation below), while every name the
- * client half imports must exist here or the named import throws at load time.
+ * The icons the operation-space tab and its row actions render with. Every name
+ * the client half imports must exist here or the named import throws at load
+ * time. The `Medium` folder/refresh/close set is gone: the tab now draws the
+ * SAME glyphs DSH's built-in 工作区文件 pane draws — `Regular` folders and the
+ * product's own `FileTypeIcon` for files — so the stub follows it.
  */
-export const IconCloseFillMedium = StubIcon
-export const IconFolderCloseMedium = StubIcon
-export const IconFolderOpenMedium = StubIcon
+export const IconCloseFillRegular = StubIcon
+export const IconFolderCloseRegular = StubIcon
+export const IconFolderOpenRegular = StubIcon
 export const IconFolderOpenOutlineRegular = StubIcon
-export const IconRefreshOutlineMedium = StubIcon
-export const IconWarningOutlineRegular = StubIcon
+export const IconRefreshOutlineRegular = StubIcon
+export const IconInfoOutlineRegular = StubIcon
+
+/**
+ * Stand-in for the platform's file-type glyph. The real component draws a
+ * category-coloured SVG chosen by the product's classifier; a test only needs to
+ * know WHICH kind reached it (that is the part this plugin chooses), so the
+ * stand-in exposes it as an attribute instead of drawing anything.
+ * @param props.kind - the resolved category the tab asked for.
+ * @returns a span carrying the kind.
+ */
+export function FileTypeIcon({ kind }: { kind?: string; path?: string; size?: number }): ReactElement {
+  return createElement('span', { 'data-file-type': kind ?? '' })
+}
+
+/**
+ * Stand-in classifier. The real one is the product's own table of name and
+ * extension rules (hundreds of entries); re-implementing it here would test a
+ * copy instead of a contract, so every path answers with the fallback category —
+ * which is all a row test needs.
+ * @returns the fallback category.
+ */
+export function classifyFileType(_path: string, _context?: unknown): string {
+  return 'other'
+}
+
+/**
+ * Stand-in for the platform path label. The real component splits a path into
+ * subdued directories and a primary filename and owns its own tooltip; a test
+ * only needs the exact path the pane put in its header, so the stand-in renders
+ * it as text and as an attribute.
+ * @param props.path - the absolute path to show.
+ * @returns the label.
+ */
+export function PathLabel({ path }: { path: string; className?: string; style?: unknown }): ReactElement {
+  return createElement('span', { 'data-path-label': path }, path)
+}
 
 /**
  * Stand-in for the platform Tooltip. The real component renders a
