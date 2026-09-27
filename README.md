@@ -11,6 +11,8 @@
 - **多根目录**：一份 `*.dsh-octopus`（兼容旧名 `*.dsh-workspace`）清单一次列出多个根目录，侧边栏按会话隔离地展示与浏览。
 - **逐目录读写权限**：每个目录声明 `readWrite` 或 `readOnly`，**未标注默认只读**；只读根的名字右侧显示一把小锁，读写根不带任何权限标识。
 - **一眼可见的绝对路径**：每个根目录行最右侧的圆圈 i（ⓘ），鼠标悬停（或键盘聚焦）即显示该根的绝对路径——只读行原本被"只读"文案占用的悬停位置，现在归还给路径本身。
+- **开始页面上的入口**：内置右侧栏的起始页里，「章鱼作业区」卡片带一行说明（*在会话工作区内高效访问工作区外的资源。*）和打开它的快捷键 **Ctrl+Alt+S**（macOS 上是 ⌘⌥S）；焦点停在会话里任意位置都能按，没有打开会话时会明确拒绝而不是乱开页签。键位可以照常在「设置 → 快捷键」里改绑。
+- **卡片插图**：起始页卡片左侧显示作业区自己的插图（`src/client/guide-artwork.tsx`）。图片以 data URL 内嵌进客户端 bundle——DSH 的 `guide[].icon` 要的是**组件**而不是图片 URL，这样也就不用加宿主路由、不怕图裂；代价是包体积，所以源图会被居中裁剪压到 128×128。**换图不要手改 base64**，用 `scripts\make-guide-artwork.ps1 -Source <图片路径>` 重新生成。
 - **一键交给桌面**：任意文件夹行（根目录与子目录）悬停时出现一个打开图标（位置在**行尾、圆圈 i 左侧**，与行右缘、与 ⓘ 的间距都和内置文件页对齐），点它就在系统文件管理器里打开该目录；文件行则是"在文件管理器中选中"。它走插件自己的宿主路由，只对**当前作业区声明范围内**的路径生效。
 - **模型也"看得见"作业区**：宿主注册了一个 `octopus_space` 工具，模型可直接查到当前作业区每个根的**标签、绝对路径、读写权限与是否存在**——于是"rw 里有什么""看下现场问题"这类只提标签的指令不必再猜，模型会先把标签解析成绝对路径。
 - **与内置「工作区文件」同一套观感**：文件行用产品自己的类型图标（`FileTypeIcon`，按类型着色），目录行用同款 Regular 文件夹图标，行距、18px 缩进、悬停底色、页头 38px 与工具按钮尺寸都与内置文件页一致，连行序也一致（目录优先 + 自然序）。所有度量集中在 `src/client/tree-metrics.ts`，由测试钉住，内置一改就会红。
@@ -165,12 +167,33 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1
 | `src/workspace-detector.ts` | 只读越权扫描与还原 |
 | `src/native-reveal.ts` | 把一条已围栏的路径交给系统文件管理器（无 shell 的 argv，Explorer 退出码 1 视为已交接） |
 | `src/client/multiroot-tab.tsx` | 内置右侧栏里的作业区页签 |
+| `src/client/shortcut.ts` | 打开页签的快捷键命令（Ctrl+Alt+S；为何不是 Ctrl+O、不是 Ctrl+Alt+W、为何不写进 `inject`，文件头有完整证据） |
+| `src/client/guide-artwork.tsx` | 起始页卡片的插图（内嵌 data URL；由 `scripts\make-guide-artwork.ps1` 生成） |
 | `src/client/tree-metrics.ts` | 与内置「工作区文件」共享的度量与令牌（唯一事实来源，由测试钉住） |
 | `src/client/tool-button.tsx` | 内置文件页 `.tool` 外观的按钮（页头动作与行内桌面动作共用） |
 | `src/client/entry-order.ts` | 与内置一致的行序：目录优先 + 自然序、大小写不敏感 |
 | `src/client/root-markers.tsx` | 根行右侧两个标记：内联小锁（codicon，CC-BY-4.0）与悬停显示绝对路径的圆圈 i（ⓘ） |
 | `src/client/reveal-button.tsx` | 行右侧的桌面动作：悬停时出现，点它把该行路径交给系统文件管理器 |
 | `src/client/file-address.ts` | `dsh-resource://` 文件地址构造（由测试对着产品解析器锁定） |
+
+## 出问题了：把插件摘掉
+
+如果某个版本的插件让 DSH **起不来**，先把它从 profile 里摘掉，再启动。脚本**不依赖 dsh 能否运行**（纯文件操作，也不会重启你正在用的宿主）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\uninstall-plugin.ps1 -DryRun   # 只看计划，不动任何东西
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\uninstall-plugin.ps1 -Yes      # 真摘（默认扫全部 profile）
+```
+
+它会先把该 profile 的 `package.json` 备份到 `octopus-uninstall-backups\<时间戳>\`，然后删掉依赖声明、已安装的包目录与 `.pnpm` 项，并剥掉 `cordis.patch.yml` / `cordis.yml` 里挂载它的行，最后逐项复核没有残留（其它插件不受影响）。修好之后装回去：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -Yes
+```
+
+> 注意：`git reset --hard` **救不了**这种事故——插件那时已经装进 profile，与仓库状态无关，必须先把插件摘掉（或重装 DSH）。
+
+---
 
 ## 由来与许可
 

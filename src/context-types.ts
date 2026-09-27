@@ -267,6 +267,20 @@ export interface SidebarInvariantsService {
 
 /** One guide entry the right-Sidebar guide page offers (subset of the 0.1.5 contract). */
 export interface SidebarRightGuideEntryFace {
+  /** Implementation identity of the entry. */
+  readonly id: string
+  /**
+   * The shortcut command whose effective binding the guide draws as keycaps. The
+   * guide looks the command up by this EXACT id: one wrong character shows no
+   * keycaps and reports nothing anywhere.
+   */
+  readonly commandId?: string
+  /**
+   * Artwork for the capsule. Without one the platform draws its cube
+   * placeholder. Declared structurally, not as `ComponentType`, so this
+   * declaration graph (which the host half also reads) stays free of React.
+   */
+  readonly icon?: (props: { size?: number; className?: string }) => unknown
   readonly order: number
   readonly title: () => string
   readonly description?: () => string
@@ -300,11 +314,82 @@ export interface SidebarRightFace {
   openResource(address: string, options?: unknown): void
   isExpanded(): boolean
   toggleExpanded(): void
+  /**
+   * Which pane a keystroke or a reveal request is aimed at, or `undefined` when
+   * no Session is mounted. Capturing it is what keeps several mounted Sessions
+   * from being guessed at.
+   */
+  commandTarget(element?: Element | null): SidebarRightTarget | undefined
+  /** Open (or focus) one tab kind in the captured pane. */
+  openTabFromTarget(kind: string, target: SidebarRightTarget): void
+}
+
+/**
+ * The sidebar pane a command is aimed at. Branded in the product's own types;
+ * mirrored structurally here because this file may not import them.
+ */
+export interface SidebarRightTarget {
+  readonly sessionId: string
+  readonly paneId: string
+  readonly tabId: string
+  readonly occurrence: number
+  readonly navigationRevision: number
 }
 
 /** The 0.1.5 right-Sidebar tab-type registry (`ctx.sidebarRightTabs`). */
 export interface SidebarRightTabsFace {
   register(definition: SidebarRightTabDefinitionFace): () => void
+}
+
+/** A physical key combination, as the shortcut registry declares it. */
+export interface SidebarShortcutBinding {
+  code: string
+  secondCode?: string
+  modifiers: readonly SidebarShortcutModifier[]
+}
+
+/** A chord modifier. `primary` is Meta on macOS and Control everywhere else. */
+export type SidebarShortcutModifier = 'primary' | 'control' | 'alt' | 'shift' | 'meta'
+
+/** The runtime/platform pairs the registry keys its per-profile defaults by. */
+export type SidebarShortcutProfile =
+  | 'desktop:macos' | 'desktop:windows' | 'desktop:linux'
+  | 'web:macos' | 'web:windows' | 'web:linux'
+
+/** Where a keystroke is honoured. */
+export type SidebarShortcutRegion = 'page' | 'editable' | 'terminal'
+
+/** What the dispatcher hands a command when its chord fires. */
+export interface SidebarShortcutContext {
+  region: SidebarShortcutRegion
+  modal: string | null
+  target: Element | null
+}
+
+/** "Run this", "refuse with a reason", or "not mine". */
+export type SidebarShortcutResolution =
+  | { status: 'handled'; run: () => void }
+  | { status: 'blocked'; reason: string }
+  | { status: 'pass' }
+
+/** One command this plugin contributes to the client's shortcut catalog. */
+export interface SidebarShortcutCommand {
+  id: string
+  label: () => string
+  aliases: readonly string[]
+  defaults: Partial<Record<SidebarShortcutProfile, SidebarShortcutBinding>>
+  regions: readonly SidebarShortcutRegion[]
+  modals: readonly string[]
+  resolve: (context: SidebarShortcutContext) => SidebarShortcutResolution
+}
+
+/**
+ * The client shortcut registry (`ctx.shortcuts`). This plugin does NOT declare
+ * it as a dependency — see the client entry's inject note — so it is reached
+ * with `ctx.get('shortcuts')` from inside a `ctx.inject` wrapper.
+ */
+export interface SidebarShortcutsService {
+  register(command: SidebarShortcutCommand): () => void
 }
 
 /**
@@ -334,6 +419,13 @@ export interface SidebarContextShape {
   invariants: SidebarInvariantsService
   /** The client locale service face. */
   locale: SidebarLocaleService
+  /**
+   * The client shortcut registry. Deliberately NOT a declared dependency of the
+   * client entry (declaring it stopped DSH from starting in 0.3.1); it is read
+   * with `ctx.get('shortcuts')` — the one route cordis allows undeclared — from
+   * inside a `ctx.inject` wrapper.
+   */
+  shortcuts?: SidebarShortcutsService
   /** The tool registry (dsh-tools) that makes the active space model-visible. */
   tools: SidebarToolsService
   /** The host session-persistence service (optional; cold-session reads). */

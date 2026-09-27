@@ -55,6 +55,7 @@ import {
 import { decideDiscovery } from './discovery-decision.ts'
 import { orderEntries } from './entry-order.ts'
 import { sessionFileAddress } from './file-address.ts'
+import { OctopusGuideArtwork } from './guide-artwork.tsx'
 import { t } from './locales.ts'
 import { RevealButton } from './reveal-button.tsx'
 import { RootPermissionMarker, RootTrailingBadge } from './root-markers.tsx'
@@ -82,7 +83,13 @@ import {
 const TAB_ID = 'octopus-operation-space'
 
 /** The page kind users open (a page type: no `patterns`, so it is opened by kind). */
-const TAB_KIND = 'octopusOperationSpace'
+export const TAB_KIND = 'octopusOperationSpace'
+/**
+ * The keyboard command that opens this tab. The start-page capsule looks the
+ * command up by this exact id (`guide[].commandId`), so the two must stay one
+ * constant — `tests/client-tab.spec.ts` pins the equality.
+ */
+export const COMMAND_ID = 'octopus.operationSpace'
 
 /** Read-only write report refresh cadence (ms). */
 const VIOLATION_POLL_MS = 5_000
@@ -163,7 +170,15 @@ export function registerMultiRootTab(ctx: Context): () => void {
     kind: TAB_KIND,
     priority: 'extension',
     title: () => t('operationSpace'),
-    guide: [{ order: 20, title: () => t('operationSpace') }],
+    guide: [{
+      id: 'operationSpace',
+      commandId: COMMAND_ID,
+      // The capsule's artwork; without it the platform draws a cube glyph.
+      icon: OctopusGuideArtwork,
+      order: 20,
+      title: () => t('operationSpace'),
+      description: () => t('guideDescription'),
+    }],
   })
   return () => { type(); body(); title() }
 }

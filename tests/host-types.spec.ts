@@ -20,10 +20,11 @@
  */
 import type { SessionStore } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import type { ShortcutCommand } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
 import type {
-  SidebarSessionPersistenceService, SidebarSessionStore, SidebarToolDefinition,
+  SidebarSessionPersistenceService, SidebarSessionStore, SidebarShortcutCommand, SidebarToolDefinition,
 } from '../src/context-types.ts'
 
 /**
@@ -48,9 +49,17 @@ const _persistence: Satisfies<SessionPersistence, SidebarSessionPersistenceServi
  */
 const _tool: Satisfies<SidebarToolDefinition, ToolDefinition> = true
 
+/**
+ * The shortcut registry must still ACCEPT what this plugin registers. The
+ * direction is forced: the real command's `id` is a branded string, so only
+ * "real → mirror" compiles. The runtime half — that this plugin's own command
+ * satisfies the registry's validation — is pinned in `client-tab.spec.ts`.
+ */
+const _shortcut: Satisfies<ShortcutCommand, SidebarShortcutCommand> = true
+
 describe('host type contract', () => {
   it('mirrors the installed dsh-session, dsh-session-persistence and dsh-tools faces', () => {
     // Every assertion is already resolved by the compiler; this reports them.
-    expect([_store, _persistence, _tool]).toEqual([true, true, true])
+    expect([_store, _persistence, _tool, _shortcut]).toEqual([true, true, true, true])
   })
 })

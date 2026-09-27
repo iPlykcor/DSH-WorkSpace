@@ -57,6 +57,13 @@ dsh web --port 0 --no-open                            # 用 0 端口，别占用
 
 判据：脚本全 PASS。等价的手工判据是：宿主走到就绪行、日志无 loader / inject / `duplicate prefix route` 失败、各路由状态码符合预期、冷会话不 500。**客户端渲染需要浏览器自动化**（`@playwright/test` 已随工作台移除），没有它就不要声称验证了页签渲染——`tests/client-tab.spec.ts` 只锁注册与文案，不锁渲染。
 
+> **客户端启动事故没有任何自动门禁能拦住它。** 实测（0.3.1）：把 `shortcuts`／`sidebarRight` 加进客户端入口的**插件级 `inject` 数组**之后，**DSH 整个起不来**——宿主 HTTP 冒烟 27 项全 PASS 也照样发生（它只探宿主，不看浏览器）；而且 `git reset --hard` 也救不回来，因为**插件已经装进 profile**，只能先把插件摘掉。因此两条硬规矩：(1) 客户端入口的 `inject` 数组由 `tests/client-tab.spec.ts` 用**精确相等**断言写死，动它之前必须先有启动验证手段；(2) 任何时候都能用恢复脚本把插件从 profile 里摘掉，它**不依赖 dsh 能否启动**（纯文件操作，不重启宿主）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\uninstall-plugin.ps1 -DryRun   # 先看计划
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\uninstall-plugin.ps1 -Yes      # 真摘
+```
+
 **一键部署（真实 profile）**：`scripts/deploy.ps1` 与冒烟互补——冒烟用一次性临时 `DSH_HOME`，部署脚本装进**真实** profile：四道门禁 → 构建打包 → 备份 profile 的 `package.json` 到 `octopus-deploy-backups\<时间戳>\` → **先 `remove` 再 `add`** → 校验依赖与插件清单，并把已安装的 `lib\index.js` / `lib\client.js` 与本次构建逐个做 SHA256 比对 → 打印重启与回滚命令。之所以要先移除：**同版本同路径的 `add` 是 pnpm 的空操作**，实测在真实 profile 上它报成功，而 `lib\index.js` 的 mtime 与内容都还是旧的（没有新路由），只有 SHA256 比对才暴露出来。它**绝不自动重启** `dsh web`：安装只在下次启动生效，而杀掉宿主会丢掉用户正在做的事。
 
 ```powershell
@@ -74,7 +81,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -DshHome 
 
 ## 3. 本包的 DSH 契约要点（对 0.1.7-rc.2 实测所得）
 
-1. **页签注册**：`ctx.sidebarRightTabs.register({ id, kind, priority, title, guide })`，页体与标题分别注册进座位 `sidebar.right.pane.tab` / `sidebar.right.pane.tab.title`，且必须经 `ctx.slots.inject(key, cb)` 包一层以等待座位声明。服务名是 `sidebarRightTabs`。**这个服务还必须写进客户端入口的 `inject` 数组，不能只在 `apply` 里用 `ctx.get` 探测**：提供方 `ui-sidebar-right` 自己的依赖更长（`slots`/`layout`/`locale`/`resources`/`sessions`/`uiSession`/`shortcuts`），cordis 会先激活依赖更少的本插件，探测于是拿到 `undefined`，`registerMultiRootTab` 直接返回 no-op 并且**永不重试**——表现为页签根本不出现，而控制台与宿主日志里**一句报错都没有**（真实踩过）。DSH 所有内置插件都把它列为依赖。`tests/client-tab.spec.ts` 锁定这一条。
+1. **页签注册**：`ctx.sidebarRightTabs.register({ id, kind, priority, title, guide })`，页体与标题分别注册进座位 `sidebar.right.pane.tab` / `sidebar.right.pane.tab.title`，且必须经 `ctx.slots.inject(key, cb)` 包一层以等待座位声明。服务名是 `sidebarRightTabs`。**这个服务还必须写进客户端入口的 `inject` 数组，不能只在 `apply` 里用 `ctx.get` 探测**：提供方 `ui-sidebar-right` 自己的依赖更长（`slots`/`layout`/`locale`/`resources`/`sessions`/`uiSession`/`shortcuts`），cordis 会先激活依赖更少的本插件，探测于是拿到 `undefined`，`registerMultiRootTab` 直接返回 no-op 并且**永不重试**——表现为页签根本不出现，而控制台与宿主日志里**一句报错都没有**（真实踩过）。DSH 所有内置插件都把它列为依赖。`tests/client-tab.spec.ts` 锁定这一条。**同一个陷阱还有两种形态，都已实测踩过**：(a) 读**未声明**的服务属性，cordis 4.0.4 **直接抛错**（`cannot get property "shortcuts" without inject`）——`ctx.get(name)` 是唯一无需声明就能用的取法，缺失时返回 `undefined` 而不抛错；(b) 反过来，把服务名加进**插件级 `inject` 数组**同样可能致命：本包是从 **profile patch 层**挂载的外部插件，声明基础 bundle 里某个 plugin 提供的服务（如 `shortcuts`）会让 **DSH 起不来**（0.3.1 实测，只能重装 DSH），而内置右侧栏在 **bundle 内部**做同样的事却没事（`ui-sidebar-right/lib/client.js:9015` 确实声明了 `shortcuts`）。结论：`inject` 数组只放**已经依赖过的提供方**（本包：`slots`／`sessions`／`locale`／`sidebarRightTabs`），其余服务一律 `ctx.inject(['name'], cb)` 包装 + 回调里 `ctx.get('name')` 读取。
 2. **打开文件只能委托**：`ctx.sidebarRight.openResource(address, { params: { line? } })`。内置文档预览是**唯一**认领文件地址的页类型，其 `canOpen` 是 `parseFileAddress(a)?.scope === 'session'`——**`absolute` scope 无人认领，调用会抛错**。因此地址必须用 `session` scope 携带绝对路径（清单声明的会话根之外目录同理）。
 3. **没有可嵌入的查看器**：`renderSlot` 只发给在自己 `register` 里声明了 `children` 的注册者，第三方无法把内置查看器挂进自己的页签。要么委托打开，要么自己实现渲染——本包选前者。
 4. **`ctx.remote.session.openWorkspacePath` 不是查看器**：它交接给操作系统的默认程序 / 文件管理器，DSH 界面里什么都不渲染。本包不使用它。
@@ -85,6 +92,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -DshHome 
 9. **工具注册：`inject` 里必须写 `'tools'`，且 `output { schema, render }` 是强制的**：服务名是 `ctx.tools`（`ToolRuntime`，dsh-tools），`register(definition)` 返回注销器，`ctx.tools` 由 base bundle 挂载。handler 的**第二个**参数才是调用上下文，会话 id 是 `exec.agent?.session.id`（`agent` 可缺——非 agent 调用者没有它，必须自己判空，否则就是替别的会话作答）。**没有 `output` 的定义根本注册不上**（注册期直接 `TypeError`），而 `execute` 的返回值又要被 `output.schema` 校验，最后 `output.render(args, value)` 才把它变成模型看到的文本——三者缺一不可。`parameters` 用原生 JSON Schema 即可：本包不需要 `defineTool` 的 DSL，于是也没有新增运行时 import（零依赖不变）。`octopus_space` 是「清单标签 → 绝对路径」唯一的模型出口，语义改动时它属于四个同步点之一。
 10. **`dsh.plugin.json` 的 `contributes` 目前没有任何消费者**：对已安装的整棵 `@deepseek-ai` 树 grep `contributes` 只命中无关的英文注释，且**没有任何 DSH 包自带 `dsh.plugin.json`**，所以 `tools` / `skills` 两个数组保持为空是现状（技能的注册同样不在里面）。别照着自己的想象往里面填 schema。
 11. **与内置「工作区文件」的观感一致性有唯一事实来源**：内置那个页签是 `@deepseek-ai/dsh-client-ui-sidebar-files`，它的行样式写在**内联进 bundle 的 CSS module** 里（`lib/client.js` 的 `k-1LKG_*` 块），而行本身用的是平台共享组件——文件行 `FileTypeIcon kind={classifyFileType(name)} size={16}`，目录行 `IconFolderOpenRegular` / `IconFolderCloseRegular`（**Regular 字重、不传 size、颜色取 `--dsw-alias-label-tertiary`**），页头用 `PathLabel`。这些组件**全都在纯度白名单内**（`@deepseek-ai/dsh-client-ui-primitives`），所以"一致"的做法是**同样的零件 + 同样的数值**，不是照着调参凑近。数值集中在 `src/client/tree-metrics.ts`（行 `padding:5px 10px`／`gap:6`／**每层缩进 18px**／body `8px 0 8px 8px` + `scrollbar-gutter:stable`／页头 38px + `.5px` 下边框／工具按钮 28×28 内嵌 15px 图标／note 12px + `3px 10px`），`tests/tree-metrics.spec.ts` 逐项钉住：**内置改了这里就会红**，逼着重读那份 CSS 而不是静默分叉。两处**刻意不同**，别当成 bug 改回去：(1) 内置的悬停来自 `:hover`，而本包拿不到 CSS module，悬停底色改由行已有的 hover 状态绘制；(2) 内置靠嵌套 `<ul>` 缩进，这里是扁平列表，按深度乘同一个 18px。行序照抄内置（目录优先 + `Intl.Collator({numeric:true,sensitivity:'base'})`，见 `src/client/entry-order.ts`）。**像素级一致无法自动断言**（本仓库没有浏览器 lane），只能锁数值与结构，最终必须人眼复核。
+
+12. **开始页卡片与快捷键**：内置右侧栏的起始页（guide 页）从类型定义的 `guide` 条目画卡片——`id`、`commandId`、`order`、`title`、`description`。**`commandId` 必须与真正注册的命令 id 逐字相同**：卡片上的键帽是 guide 拿这个 id 去快捷键注册表里查**生效绑定**得到的，写错一个字符既不报错、也不显示键帽，写成别人的 id 就会显示别人的键。本包 id 是 `octopus.operationSpace`（`COMMAND_ID`，与 `TAB_KIND` 一同放在 `multiroot-tab.tsx`），`tests/client-tab.spec.ts` 锁住这条等式。`description` 只在 guide 条目不算拥挤时才渲染（条目多时 guide 退回只留标题），所以卡片必须靠标题自己站得住。图标是**组件**而不是图片 URL（`entry.icon ?? CubeGlyph`，`ui-sidebar-right/lib/client.js:461`，按 `ComponentType<IconProps>` 以 `size` 22／26 绘制）：平台只出了 `GuideArtworkFiles` / `GuideArtworkBrowser` 两幅插画，本包在 `src/client/guide-artwork.tsx` 里给卡片配了自己的插图——**图片以 data URL 内嵌**（不加宿主路由、不怕图裂，代价是包体积，所以源图居中裁剪到 128×128，`tests/guide-artwork.spec.tsx` 把 base64 长度钉在 1k～40k 之间，防止以后有人往每个客户端加载里塞照片）。**换图必须走生成脚本，不许手改 base64**：`scripts\make-guide-artwork.ps1 -Source <图片路径>`（纯文件操作、ASCII 输出、无 BOM，并会回读校验；它把文件头注释、data URL、组件一起重写，所以注释的唯一事实来源是这个脚本）。插图为装饰性内容：`alt=""` + `aria-hidden="true"`，语义由卡片标题承担；不写任何颜色，皮肤归 shell。
+
+    **服务怎么取见 §3.1**：`shortcuts` 绝不进 `inject` 数组，而是 `ctx.inject(['shortcuts'], () => ctx.effect(() => registerOctopusShortcut(ctx)))` 包装 + 回调里 `ctx.get('shortcuts')`／`ctx.get('sidebarRight')`。这样最坏情况是"没有键帽"，**不会**影响启动——0.3.0 正是如此：注册在延迟回调里抛错，页签与卡片照常工作。
+
+    **绑定是 `Ctrl+Alt+S`（`primary+alt+KeyS`）**。选键位不是审美问题：`register` 会**遍历全部六个 profile** 校验每条已声明的默认值并在不合格时**抛错**（`dsh-client-shortcuts/lib/client.js:590-604`），而抛错发生在**延迟回调**里——于是页签与卡片照常工作，命令却悄悄不在目录里：卡片没有键帽、设置 → 快捷键里搜不到、按键毫无反应、宿主日志也干净。前两次选择都是这样死的，两次都是靠读**已安装的 bundle**（不是靠推理）才定案：
+
+    - `Ctrl+O`：桌面运行时已被内置 `workspace.add` 占用，注册表对重叠默认值直接抛 `Conflicting shortcut defaults`；web 运行时更早拦下——`isWebBindingAllowed` 对一个修饰键的组合只放行 `primary+Comma`／`primary+Backslash`／`control+Backquote`，其余抛 `Unsupported Web shortcut`（内置文件页因此在 web 用 `Ctrl+Alt+P`、桌面用 `Ctrl+P`）；`Ctrl+O` 本身还是浏览器的"打开文件"。
+    - `Ctrl+Alt+W`（0.3.0／0.3.2 都已发出）：内置 `dsh-client-ui-sidebar-right` 的 `page.close`（关闭页签）在桌面是 `primary+KeyW`、**在 web 就是 `primary+alt+KeyW`**（`ui-sidebar-right/lib/client.js:274-291`），逐字相同 → 抛 `Conflicting shortcut defaults: octopus.operationSpace and page.close (web:windows)`。那个 `KeyW` 写成**三元表达式**（`code: kind === "close" ? "KeyW" : "KeyR"`，line 275），`code: "KeyW"` 这种 grep 看不到；`dsh-client-ui-workspace` 更把键位当**位置参数**传给本地 `register(...)`。**结论（选键位前必做）：对"已安装树"（`<global dsh>/node_modules/@deepseek-ai/dsh-client-*/lib/client.js`）grep 裸字符串 `"Key<X>"`，不要 grep `code: "Key<X>"`，也不要只搜本仓库的 `node_modules`（那里只有少数几个客户端包）。** `tests/shortcut-binding.spec.ts` 会拿当前安装的 DSH 自动重跑这道扫描。
+
+    `KeyS` 通过了这道扫描（已安装客户端 bundle 里没有任何 `"KeyS"` 绑定；唯一命中是 xterm 的键码枚举文件 `client.terminal.js`，不是绑定）。形状在所有已声明 profile 上都合法：`primary+alt` 正是 web 认的两修饰键形状（`dsh-client-shortcuts/lib/client.js:115`），`KeyS` 不在保留集（`:222-240` 保留 `Escape/Tab/Space/Backspace/Delete/方向键`、不带 Alt 的 `Enter`、`primary+KeyC/V/X/Z/Y/Q/H`、以及不带 Shift 的 `primary+KeyA`），桌面 Windows/macOS 更是直接跳过保留检查（`:216`）。`web:linux` **故意不声明**，与内置文件页一致（web 规则对 Linux 只认极少数组合，声明了就是抛错）。
+
+    **键帽 ≠ 派发。** 起始页的键帽只取自目录行（`ui-sidebar-right/lib/client.js:489`，按 `entry.commandId` 匹配，`:528`），而真正派发走的是另一张表，只有在快捷键配置可用（`config.status !== "loading"`，`dsh-client-shortcuts/lib/client.js:622-623`）时才被填上。现场实测：**内置 `workspace.files` 卡片有键帽、它自己的键按下去也没反应**——所以那条链路的问题在 shell 层，本插件的默认值只决定目录／卡片／设置页显示什么。
+
+    `resolve` 必须用 `ctx.sidebarRight.commandTarget(input.target)` 先捕获"用户此刻所在的那块侧边栏面板"，再 `openTabFromTarget(TAB_KIND, target)`：多个会话同时挂载时凭猜就会开错地方；捕获不到（没有挂载的会话）是带理由的拒绝，不是猜。
 
 ---
 
@@ -107,9 +129,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -DshHome 
   - `tests/native-reveal.spec.ts` —— 桌面交接的 argv 构造（`/select,` 与目标必须是**一个** argv 元素、目标里不得出现引号或 file URL、含逗号的文件名降级为打开所在目录、路径永不被拼进命令字符串、三个平台各一条），**刻意不启动任何进程**；成功分支会在跑测试的机器上弹真实窗口，所以按设计只人工验证，而且要查**可见性与选中项**而不是窗口数量；
   - `tests/tree-metrics.spec.ts` —— 与内置文件页的**度量契约**：行盒、间距、18px 缩进、页头 38px、工具按钮、note 与悬停令牌逐项钉死（内置一改就红）；**刻意不断言渲染**，像素级一致只能人眼复核；
   - `tests/entry-order.spec.ts` —— 与内置一致的行序（目录优先 + 自然序、大小写不敏感、不改动入参）；
-  - `tests/client-tab.spec.ts` —— 页签三重注册的身份一致性（type `id` 与两个座位 `key`）＋ 文案零死键；
+  - `tests/client-tab.spec.ts` —— 页签三重注册的身份一致性（type `id` 与两个座位 `key`）＋ 文案零死键（`multiroot-tab.tsx` 与 `shortcut.ts` 一起扫）＋ **`inject` 数组的精确相等断言**（防止再把服务声明进去）＋ 开始页卡片（`commandId` 与命令 id 的等式、两语说明）＋ 快捷键命令（按 profile 的默认绑定、捕获不到面板时的拒绝、每次注册都由 effect 拥有）；
   - `tests/root-markers.spec.tsx` —— 根行标记的渲染契约：只读行画的是**真的锁形几何**（两条子路径）而不是空占位、读写行**不留任何权限标识**（这条由 `RootPermissionMarker` 单独承载，因为它曾经整个消失过一次）、圆圈 i（`RootTrailingBadge`，行的最后一个元素、不伸缩）把绝对路径原样交给气泡（剥离零宽空格后必须逐字节相等）；
-  - `tests/host-types.spec.ts` —— 手写结构镜像对真实宿主类型的编译期可赋值性（`inspect` 那类漂移的守门人）；
+  - `tests/shortcut-binding.spec.ts` —— 拿**当前安装的 DSH** 全量扫描 `dsh-client-*/lib/client.js` 里的 `"Key<X>"` 裸字符串，证明本插件选的键没有被内置命令占用（没有安装时明确跳过，不假装验证过）；踩坑史见 §3.12；
+  - `tests/host-types.spec.ts` —— 手写结构镜像对真实宿主类型的编译期可赋值性（`inspect` 那类漂移的守门人；含 `ShortcutCommand` 镜像：方向只能是"真实命令 → 镜像"，因为真实 `id` 是 branded 字符串，反方向由 `client-tab.spec.ts` 在运行时锁）；
   - `tests/file-address.spec.ts` —— 文件地址对产品解析器的往返（最容易静默失配的一处）；
   - `tests/workspace-schema.spec.ts` —— 清单解析、JSONC、默认值；
   - `tests/workspace-policy.spec.ts` —— 根解析与读/写基集分类；
