@@ -67,6 +67,9 @@ $ErrorActionPreference = 'Stop'
 $PackageName = 'dsh-octopus-operation-space'
 $Repo = Split-Path -Parent $PSScriptRoot
 $script:failures = 0
+# Set when a failed `add` forced the profile manifest to be restored from this
+# run's backup, so the failure summary can say the plugin is still mounted.
+$script:mountsRestored = $false
 
 function Write-Step([string]$Text) { Write-Host ''; Write-Host "==> $Text" -ForegroundColor Cyan }
 function Write-Pass([string]$Text) { Write-Host "  PASS  $Text" -ForegroundColor Green }
@@ -111,6 +114,38 @@ function Show-CapturedFailure {
   foreach ($file in @($OutFile, $ErrFile)) {
     if (Test-Path $file) { Get-Content $file -ErrorAction SilentlyContinue | Write-Host }
   }
+}
+
+# Put the profile manifest back after an `add` that failed on every attempt.
+#
+# Why this exists: `dsh plugin add` is not atomic from the caller's point of
+# view. pnpm links the package and updates the lockfile, then renames the
+# profile's package.json - and THAT rename can fail with `[EPERM] operation not
+# permitted` on a transient Windows file lock (measured once on the real
+# profile, 0.8.0: the installed bytes were current, the lockfile was current,
+# and the manifest had lost both mount entries). Because the install path
+# removes the previous version first, the profile is left mounting NOTHING: the
+# next GUI start would silently lose the tab. Restoring this run's own backup
+# puts the mount back; its dependency spec still resolves because old tarballs
+# are only cleaned up after a successful verify.
+function Restore-ProfileMounts {
+  param([string]$BackupDir, [string]$ManifestPath, [string]$Name)
+  $backupManifest = Join-Path $BackupDir 'package.json'
+  if (-not (Test-Path $backupManifest)) {
+    Write-Note "no profile manifest backup to restore from: $backupManifest"
+    Write-Note "the profile may be left unmounted; check $ManifestPath by hand"
+    return
+  }
+  Copy-Item $backupManifest $ManifestPath -Force
+  $restored = Get-Content $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+  $dep = $restored.dependencies.$Name
+  $bundled = $restored.dsh.profile.bundles -contains $Name
+  if ($null -ne $dep -and $bundled) {
+    Write-Pass "restored the mount entries from $backupManifest ($Name -> $dep)"
+  } else {
+    Write-Note "restored $ManifestPath, but it does not name $Name in BOTH dependencies and dsh.profile.bundles"
+  }
+  $script:mountsRestored = $true
 }
 
 # -- preflight ----------------------------------------------------------------
@@ -198,7 +233,10 @@ try {
       # here if it did not.
       if ($SkipTests) { Invoke-Streamed 'pnpm build' { & pnpm build } }
     }
-    Get-ChildItem -Path $Repo -Filter '*.tgz' -ErrorAction SilentlyContinue | Remove-Item -Force
+    # Old tarballs are deliberately NOT cleaned here. The profile currently
+    # mounts one of them, and if the install below fails, the backups-based
+    # recovery restores a manifest that names it - so it has to still exist.
+    # They are cleaned after a successful verify instead.
     $packOut = Join-Path $env:TEMP "octopus-pack-$PID.out"
     $packErr = Join-Path $env:TEMP "octopus-pack-$PID.err"
     $code = Invoke-Captured -Command { & pnpm pack } -OutFile $packOut -ErrFile $packErr
@@ -256,15 +294,39 @@ try {
       Remove-Item $rmOut, $rmErr -Force -ErrorAction SilentlyContinue
       Write-Pass 'removed the previous install first (so the new build is really extracted)'
     }
-    $addOut = Join-Path $env:TEMP "octopus-add-$PID.out"
-    $addErr = Join-Path $env:TEMP "octopus-add-$PID.err"
-    $code = Invoke-Captured -Command { & dsh plugin --profile $Profile add $uri } -OutFile $addOut -ErrFile $addErr
-    if ($code -ne 0) {
-      Show-CapturedFailure -OutFile $addOut -ErrFile $addErr
-      throw "dsh plugin add failed with exit code $code (profile manifest backed up at $backupDir)"
+    # `add` is retried because its failure mode is transient: pnpm can install
+    # everything and then be refused the atomic rename of the profile's
+    # package.json (`[EPERM] ... -> package.json`) by a momentary file lock.
+    # Trying again is the whole fix for that case, and it is far cheaper than
+    # the recovery below.
+    $addOk = $false
+    $attempts = 3
+    for ($attempt = 1; $attempt -le $attempts; $attempt++) {
+      $addOut = Join-Path $env:TEMP "octopus-add-$PID-$attempt.out"
+      $addErr = Join-Path $env:TEMP "octopus-add-$PID-$attempt.err"
+      $code = Invoke-Captured -Command { & dsh plugin --profile $Profile add $uri } -OutFile $addOut -ErrFile $addErr
+      if ($code -eq 0) {
+        Remove-Item $addOut, $addErr -Force -ErrorAction SilentlyContinue
+        if ($attempt -eq 1) { Write-Pass 'dsh plugin add succeeded' }
+        else { Write-Pass "dsh plugin add succeeded on attempt $attempt of $attempts" }
+        $addOk = $true
+        break
+      }
+      if ($attempt -lt $attempts) {
+        Write-Note "dsh plugin add failed with exit code $code (attempt $attempt of $attempts); retrying - a transient file lock is the known cause"
+        Start-Sleep -Milliseconds 2000
+      } else {
+        Write-Note "dsh plugin add failed with exit code $code on all $attempts attempts; its output follows"
+        Show-CapturedFailure -OutFile $addOut -ErrFile $addErr
+      }
     }
-    Remove-Item $addOut, $addErr -Force -ErrorAction SilentlyContinue
-    Write-Pass 'dsh plugin add succeeded'
+    if (-not $addOk) {
+      # Leave the profile MOUNTED even though this run failed: an unmounted
+      # profile loses the tab on the next start, which is worse than a stale
+      # version. Re-running the script is the documented next step.
+      Restore-ProfileMounts -BackupDir $backupDir -ManifestPath $profileManifest -Name $PackageName
+      throw "dsh plugin add failed on all $attempts attempts; the mount entries were restored from $backupDir"
+    }
   }
 
   # -- verify -----------------------------------------------------------------
@@ -294,6 +356,19 @@ try {
       $diskHash = (Get-FileHash -Path $onDisk -Algorithm SHA256).Hash
       if ($builtHash -eq $diskHash) { Write-Pass "$relative on disk matches this build ($($builtHash.Substring(0, 12))...)" }
       else { Write-Fail "$relative on disk is STALE (installed $($diskHash.Substring(0, 12))..., built $($builtHash.Substring(0, 12))...)" }
+    }
+  }
+
+  # -- clean up superseded tarballs (only after a successful verify) -----------
+  # Now that the profile mounts THIS tarball, the older ones are dead weight.
+  # Doing it here - not before the install - is what keeps a failed install's
+  # restored manifest resolvable.
+  if (-not $DryRun -and $script:failures -eq 0) {
+    $stale = @(Get-ChildItem -Path $Repo -Filter '*.tgz' -ErrorAction SilentlyContinue |
+      Where-Object { $_.FullName -ne $tgz })
+    if ($stale.Count -gt 0) {
+      $stale | Remove-Item -Force
+      Write-Pass "removed $($stale.Count) superseded tarball(s)"
     }
   }
 
@@ -341,6 +416,7 @@ try {
   Write-Host ''
   Write-Host "DEPLOY FAILED: $($_.Exception.Message)" -ForegroundColor Red
   if ($backupDir -ne '' -and (Test-Path $backupDir)) { Write-Host "  profile manifest backup: $backupDir" }
+  if ($script:mountsRestored) { Write-Host '  the profile manifest was restored from that backup: the plugin is still mounted (previous version)' -ForegroundColor Yellow }
   exit 1
 } finally {
   if ($null -ne $previousDshHome) { $env:DSH_HOME = $previousDshHome } else { Remove-Item Env:\DSH_HOME -ErrorAction SilentlyContinue }
