@@ -50,7 +50,7 @@ dsh web --port 0 --no-open                            # 用 0 端口，别占用
 > 写临时清单文件**不要用 PowerShell 的 `-Encoding UTF8`**——PS 5.1 会写 BOM，JSON 解析直接失败（表现为 `workspace.activate` 返回 400）。用
 > `[System.IO.File]::WriteAllText($p, $json, (New-Object System.Text.UTF8Encoding($false)))`。
 >
-> PS 5.1 的两个实测陷阱（写这类脚本必踩，都已在 `smoke.ps1` 里绕开）：`[string](Get-Content $f -Raw)` 对**空文件**仍是 `$null`，`.Trim()` 直接硬报错；`$ErrorActionPreference = 'Stop'` 下把原生命令的 stderr 用 `2>&1` 并入管道**或** `2> file` 重定向，都会被当成终止性 `NativeCommandError`，必须局部降到 `Continue` 才能正常捕获。
+> **PS 5.1 的四个实测陷阱**（写这类脚本必踩，前两个已在 `smoke.ps1` 里绕开）：`[string](Get-Content $f -Raw)` 对**空文件**仍是 `$null`，`.Trim()` 直接硬报错；`$ErrorActionPreference = 'Stop'` 下把原生命令的 stderr 用 `2>&1` 并入管道**或** `2> file` 重定向，都会被当成终止性 `NativeCommandError`，必须局部降到 `Continue` 才能正常捕获；**`$PSScriptRoot` 在 `param()` 的默认值里是空的**（只在脚本体里可靠），`[string]$OutDir = (Join-Path (Split-Path -Parent $PSScriptRoot) 'dist')` 直接抛 `Cannot bind argument to parameter 'Path' because it is an empty string`——默认值必须挪到脚本体里算，并用 `$MyInvocation.MyCommand.Path` 兜底；`… | Select-Object -First 1` 会**提前掐断上游管道**，被掐断的命令（git / pnpm）以非零码退出，`$LASTEXITCODE` 随即失去"它成功了"的含义（实测让离线包指南里的 commit 变成 `unknown`）——要取首行先落变量，并且**用 `@()` 强制成数组再索引**：只返回一行时结果是**一个字符串**，`$output[0]` 在字符串上取到的是**首字符**（实测同一处又变成 `e`）。
 >
 > **`.ps1` 里的输出字符串必须保持纯 ASCII**：无 BOM 的 UTF-8 脚本会被 PS 5.1 按系统 ANSI 码页（本机 GBK）读取，`…` / `──` 这类字符经 `Write-Host` 直接变成 `鈥?`。注释里的乱码看不见（`smoke.ps1` 的中文注释就是如此），但**用户会看到输出乱码**——`deploy.ps1` 因此刻意写成纯 ASCII。
 >
@@ -87,6 +87,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -DshHome 
 ```
 
 `-SkipTests` 跳过四道门禁，`-SkipBuild` 复用现有 `lib/`，`-DryRun` 只打印不落盘，`-Yes` 免确认。`-DshHome` 同时是它自己的测试入口。
+
+**内网离线部署包**：`scripts\make-offline-package.ps1` 生成 `dist\offline\octopus-offline-<版本>\`（外加同名 zip，0.5 MB 量级；`dist` 已在 `.gitignore` 里，产物不入库）。包内是：已构建好的 `package\`（严格按 `package.json` 的 `files` 镜像，**另外显式补上 `package.json` 本身**——npm 总是隐式包含它，而安装脚本与 DSH 都要读它）、同一份产物的 tarball、`scripts\offline\install-offline.ps1`、`scripts\uninstall-plugin.ps1`、渲染好的 `INSTALL-OFFLINE.md`（`{{PLUGIN_VERSION}}` / `{{DSHWS_COMMIT}}` / `{{BUILT_AT}}` 由脚本替换，渲染后校验"没有残留占位符 + 长度下限"）、以及逐文件 `SHA256SUMS.txt`。**包内所有文件名保持 ASCII**（`Compress-Archive` 在 PS 5.1 下按系统码页写名字，中文文件名会在解压侧乱码），中文只出现在文档内容里。
+
+`install-offline.ps1` 是**纯文件操作**的安装器，不需要 npm / pnpm / 任何网络：读 `package\package.json` 确认包完整 → 备份 profile 清单到 `octopus-offline-backups\<时间戳>\` → **探测 DSH 版本**（从 `Get-Command dsh` 的位置往上找 `@deepseek-ai/dsh/package.json`，按 `^0.1.7-rc.1 || ^0.2.0-rc.1` 即 `[0.1.7-rc.1, 0.3.0)` 判定；不匹配或读不到就**拒绝**并提示 `-Force`，因为不匹配的 bundle 只会被 `reportSkippedBundles` 静默跳过）→ 复制 `package\` 进 `profiles\<profile>\node_modules\<name>\`（旧目录改名保留为 `…replaced-<时间戳>`，而不是直接删掉）→ 写**两处**挂载项 → 逐文件比对 `SHA256SUMS.txt` 并回读清单 → 任何失败还原清单、还原旧目录、清掉半成品。它**绝不重启宿主**，profile 不存在时也**不会凭空造一个**（要求先让 DSH 自己把 profile 建好）。纯文件操作为什么在这里是忠实的：本包零运行时依赖、peer 全部由 DSH 自己的安装提供，而官方安装后 `profiles\<profile>\node_modules` 里也只有插件本体一个**真目录**（实测），所以"复制目录 + 写两处挂载项"与 `dsh plugin add` 的结果结构一致——离线包里的 `lib\index.js` / `lib\client.js` 与已部署并 SHA256 核对过的那次构建**逐字节相同**。
+
+> **离线安装器的演练是确定性的**（改它就重跑）：`install-offline.ps1 -PackageDir <包>\package -DshHome <临时目录> -Yes` → 断言两处挂载项各自出现**恰好一次**、安装版本正确、装后的 `lib\index.js` 与包内哈希相同、备份目录已建；**再跑一次**（升级分支）断言 bundles 里仍只有一条且 `.replaced-*` 已被清理；然后**篡改包副本里的一个字节**重跑，断言脚本失败、清单**逐字节还原**、上一份能用的安装被还原、挂载项没有重复；接着 `uninstall-plugin.ps1 -DshHome <同一目录> -Yes` 断言两处挂载项消失而基座 bundle（`@deepseek-ai/dsh-web-app`）存活；最后对一个没有 profile 的 home 断言拒绝且不新建 `profiles\`。夹具用**真实 profile 清单去掉本插件那两条**（而不是手写 JSON），这样"未挂载"的起始态与现场一致。
 
 > **CI 与发布自动化已随工作台一并移除**（`.github/` 不在本包内）。需要 CI 时重新添加；当前发版是手动步骤。
 

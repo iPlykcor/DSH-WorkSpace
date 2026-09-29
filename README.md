@@ -59,6 +59,34 @@ dsh plugin --profile web remove dsh-octopus-operation-space
 
 > `dsh plugin` 实际是在 profile 目录里执行 pnpm，所以增删都用 pnpm 的动词（`add` / `remove`）。
 
+### 内网 / 离线部署
+
+目标机器**不能访问 npm 仓库**时，用离线包。先生成（在能构建的机器上）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\make-offline-package.ps1
+# 产物：dist\offline\octopus-offline-<版本>\  以及同名 .zip（0.5 MB 量级）
+```
+
+把整个目录（或 zip）拷进内网，在**包目录**里执行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install-offline.ps1 -DryRun   # 只打印计划
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install-offline.ps1 -Yes      # 真装
+```
+
+它是**纯文件操作**：不跑 npm / pnpm，不需要网络。做的事与范围：读包清单确认完整 → 备份 profile 的 `package.json` 到 `octopus-offline-backups\<时间戳>\` → **先探测 DSH 版本**（要落在 `^0.1.7-rc.1 || ^0.2.0-rc.1`，即 `0.1.7-rc.1 ≤ 版本 < 0.3.0`；不匹配就拒绝，除非 `-Force`——不匹配的 bundle 会在启动时被静默跳过，页签凭空消失而日志里没有插件报错）→ 复制 `package\` 进 `profiles\<profile>\node_modules\dsh-octopus-operation-space\` → 写**两处**挂载项（`dependencies` 与 `dsh.profile.bundles`）→ 逐文件比对 `SHA256SUMS.txt` 并回读清单 → 任何失败都还原清单、还原被替换的旧目录、清掉半成品。它**绝不重启** `dsh web`。
+
+前提：这台机器已经装好 DSH（本包不含 DSH 本身），且目标 profile 已经成形——全新 home 先跑一次 `dsh web --port 0 --no-open` 再停掉即可。
+
+详细步骤、手工兜底写法（两处挂载项的 JSON 片段）、验证清单与已知坑都在包内的 **`INSTALL-OFFLINE.md`**。
+
+卸载用包内的 `uninstall-plugin.ps1`（同样是纯文件操作，不依赖 `dsh` 能否启动）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\uninstall-plugin.ps1 -Yes
+```
+
 ## 使用
 
 1. 打开右侧栏的页签菜单，选择**章鱼作业区**。
