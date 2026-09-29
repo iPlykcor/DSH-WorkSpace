@@ -13,6 +13,7 @@
 - **挂载只走 `cordis.patch.yml` + profile 机制**（`$DSH_HOME/profiles/<profile>/`）：插件作为独立包被 profile 引用，不反向侵入 DSH。
 - **市场受管安装约束**：`dependencies` / `peerDependencies` / `optionalDependencies` **一律不得出现 `cordis`**（按名硬拒，optional 无效）；`scripts` 不得含 `preinstall` / `install` / `postinstall` / `prepare`。
 - **保持零运行时依赖**：`dependencies` 为空；客户端只消费 DSH 冻结模块表里的平台模块，由宿主在挂载时注入。
+- **平台 peer 范围是一次兼容性声明，平台升级时必须一起改**：7 个平台包（`dsh-client-locale` / `dsh-client-ui-primitives` / `dsh-client-ui-sidebar-right` / `dsh-host-webserver` / `dsh-invariants` / `dsh-session` / `dsh-tools`）的 peer 范围要同时接受 `^0.1.7-rc.1` 与 `^0.2.0-rc.1`。**0.x 上的 caret 锁小版本**：`^0.1.7-rc.1` = `>=0.1.7-rc.1 <0.2.0`；而且 semver 要求"带预发布的版本必须命中一个 `major.minor.patch` 相同、且自身也带预发布的比较符"，所以 `>=0.1.7-rc.1 <0.3.0` 这类写法**照样匹配不上** `0.2.0-rc.1`——只有 `^0.2.0-rc.1` 这种同元组带预发布的比较符才行。DSH 在**安装时**按这份范围判定（不匹配即拒绝：`installation rejected: Plugin … is incompatible with dsh …`，并给出 `dsh plugin allow-version … --accept-risk` 的豁免入口），已装上的不匹配 bundle 则在启动时被 `reportSkippedBundles` **跳过并报告**——界面表现是页签凭空消失、日志里没有任何插件报错。放宽范围**必须先拿到实测证据**（客户端符号/服务名静态核对 + `scripts\smoke.ps1` 在目标运行时上全绿），不能凭"应该没改"就改。
 
 ---
 
@@ -91,7 +92,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -DshHome 
 
 ---
 
-## 3. 本包的 DSH 契约要点（对 0.1.7-rc.2 实测所得）
+## 3. 本包的 DSH 契约要点（对 0.1.7-rc.2 与 0.2.0-rc.1 实测所得）
 
 1. **页签注册**：`ctx.sidebarRightTabs.register({ id, kind, priority, title, guide })`，页体与标题分别注册进座位 `sidebar.right.pane.tab` / `sidebar.right.pane.tab.title`，且必须经 `ctx.slots.inject(key, cb)` 包一层以等待座位声明。服务名是 `sidebarRightTabs`。**这个服务还必须写进客户端入口的 `inject` 数组，不能只在 `apply` 里用 `ctx.get` 探测**：提供方 `ui-sidebar-right` 自己的依赖更长（`slots`/`layout`/`locale`/`resources`/`sessions`/`uiSession`/`shortcuts`），cordis 会先激活依赖更少的本插件，探测于是拿到 `undefined`，`registerMultiRootTab` 直接返回 no-op 并且**永不重试**——表现为页签根本不出现，而控制台与宿主日志里**一句报错都没有**（真实踩过）。DSH 所有内置插件都把它列为依赖。`tests/client-tab.spec.ts` 锁定这一条。**同一个陷阱还有两种形态，都已实测踩过**：(a) 读**未声明**的服务属性，cordis 4.0.4 **直接抛错**（`cannot get property "shortcuts" without inject`）——`ctx.get(name)` 是唯一无需声明就能用的取法，缺失时返回 `undefined` 而不抛错；(b) 反过来，把服务名加进**插件级 `inject` 数组**同样可能致命：本包是从 **profile patch 层**挂载的外部插件，声明基础 bundle 里某个 plugin 提供的服务（如 `shortcuts`）会让 **DSH 起不来**（0.3.1 实测，只能重装 DSH），而内置右侧栏在 **bundle 内部**做同样的事却没事（`ui-sidebar-right/lib/client.js:9015` 确实声明了 `shortcuts`）。结论：`inject` 数组只放**已经依赖过的提供方**（本包：`slots`／`sessions`／`locale`／`sidebarRightTabs`），其余服务一律 `ctx.inject(['name'], cb)` 包装 + 回调里 `ctx.get('name')` 读取。
 2. **打开文件只能委托**：`ctx.sidebarRight.openResource(address, { params: { line? } })`。内置文档预览是**唯一**认领文件地址的页类型，其 `canOpen` 是 `parseFileAddress(a)?.scope === 'session'`——**`absolute` scope 无人认领，调用会抛错**。因此地址必须用 `session` scope 携带绝对路径（清单声明的会话根之外目录同理）。
