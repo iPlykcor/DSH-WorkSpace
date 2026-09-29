@@ -1,6 +1,6 @@
 {
   "id": "dsh-external/dsh-octopus-operation-space",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "main": "./lib/index.js",
   "description": "章鱼作业区（Octopus Operation Space）：为 DSH 内置右侧栏提供多根工作区。一份 JSONC 清单声明若干目录及各自读写权限，未声明的路径一律只读，由宿主侧路径围栏强制，并辅以尽力而为的越权检测与还原。刻意只做单一功能——文件打开与渲染交给 DSH 自身。",
   "engines": {

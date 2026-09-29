@@ -1277,27 +1277,36 @@ describe('model-visible operation space tool', () => {
     const tool = harness.tools[0]!
     const exec = execFor(SESSION)
 
-    const before = JSON.parse(String(await tool.execute({}, exec))) as { active: boolean; hint?: string }
-    expect(before.active).toBe(false)
-    expect(before.hint).toBeTypeOf('string')
+    // Before activation the answer is a sentence the model can act on (where a
+    // space comes from), not `active: false` plus a session id it cannot use.
+    // The exact wording is pinned in `workspace-report.spec.ts`; what matters
+    // HERE is that the tool really routes through that module.
+    const before = String(await tool.execute({}, exec))
+    expect(before).toContain('No operation space is active')
+    expect(before).toContain('.dsh-octopus')
+    expect(before).not.toContain('{')
 
     // `activate` resolves to the activated snapshot itself (see the lifecycle
     // tests above); the tool must then report exactly that space.
     await activate(harness)
-    const payload = JSON.parse(String(await tool.execute({}, exec))) as {
-      active: boolean
-      workspace: { manifestPath: string; roots: Array<{ label: string; path: string; access: string; exists: boolean }> }
-    }
-    expect(payload.active).toBe(true)
-    expect(payload.workspace.manifestPath).toBe(manifestPath)
+    const report = String(await tool.execute({}, exec))
+    expect(report).toContain(`Manifest: ${manifestPath}`)
 
     // The whole point of the tool: the label the user typed resolves to the
-    // absolute path the manifest granted, with the access the manifest declared.
-    const ro = payload.workspace.roots.find(root => root.label === 'ro')
-    expect(ro).toEqual({ label: 'ro', path: roRoot, access: 'readOnly', exists: true, listed: true })
+    // absolute path the manifest granted, under the access the manifest declared
+    // — stated once per group instead of once per root.
+    expect(report).toContain('read-only (')
+    expect(report).toContain(`  ro = ${roRoot}`)
     // The session cwd rides along as the implicit readWrite root, so the model
-    // also learns the one folder it is allowed to write without being told.
-    expect(payload.workspace.roots.some(root => root.access === 'readWrite')).toBe(true)
+    // also learns the one folder it is allowed to write without being told, and
+    // that no manifest entry declares it (`implicit`).
+    expect(report).toContain('read-write (')
+    expect(report).toContain('(implicit)')
+
+    // What the model is NOT charged for: the wire snapshot's own fields.
+    expect(report).not.toContain('sessionId')
+    expect(report).not.toContain('activatedAt')
+    expect(report).not.toContain('"access"')
   })
 
   it('fails loudly when the call has no owning session rather than answering for another one', async () => {

@@ -166,6 +166,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1
 | --- | --- |
 | `src/index.ts` | 宿主入口：注册技能、挂载 `/octopus/api` 围栏路由 |
 | `src/workspace-schema.ts` | 清单解析（JSONC、字段归一、默认值） |
+| `src/workspace-report.ts` | 交给模型的那份作业区报告（按权限分组的 `标签 = 绝对路径`，只标「现在不存在」与「隐含 cwd 根」）；工具注册在 `workspace-tool.ts`，客户端线格式仍由 `workspace-state.ts` 负责 |
 | `src/manifest-edit.ts` | 唯一一处写盘：向 `folders` 追加一条、改写某一条的 `access`、删掉某一条（三者都是保注释的文本改写 + 备份 + 原子替换 + 回读校验） |
 | `src/workspace-policy.ts` | 根解析与读/写基集，路径分类 |
 | `src/workspace-discovery.ts` | 会话 cwd 的清单发现（只扫一层、只认已声明扩展名、上报 `autoActivate` 与解析错误） |

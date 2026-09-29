@@ -13,8 +13,16 @@
  * IT REPORTS, IT DOES NOT ACT. Reading is the whole job: a tool that also
  * opened, wrote or applied anything would be a second, unchecked write path
  * next to the manifest, which is the one source of truth this package allows.
+ *
+ * WHAT IT SAYS lives in ./workspace-report.ts. `snapshotOf` is the CLIENT's wire
+ * format (seven routes and the whole tab depend on its shape), and serializing it
+ * at the model would charge it for `sessionId`, `cwd`, `activatedAt` and per-root
+ * flags it cannot use — roughly 385 tokens for a ten-root space against 144 for
+ * the report. So the tool renders its own, smaller view, and the model-facing
+ * words are tested there rather than here.
  */
 import type { SidebarToolDefinition } from './context-types.ts'
+import { renderNoSpaceReport, renderSpaceReport } from './workspace-report.ts'
 import { snapshotOf, type WorkspaceRegistry } from './workspace-state.ts'
 
 /** The tool name the model sees (and the only one this plugin registers). */
@@ -69,14 +77,11 @@ export function createWorkspaceTool(registry: WorkspaceRegistry): SidebarToolDef
       }
       const active = registry.get(sessionId)
       if (active === undefined) {
-        return JSON.stringify({
-          active: false,
-          sessionId,
-          hint: 'No operation space is active in this session. It is applied from the 章鱼作业区 tab '
-            + '(or by a manifest the user points at); until then no folder outside DSH\'s own workspace is granted.',
-        })
+        // "Not active" is actionable, so the answer says where a space comes
+        // from instead of naming fields (`active: false`) the model cannot use.
+        return renderNoSpaceReport()
       }
-      return JSON.stringify({ active: true, sessionId, workspace: snapshotOf(active) })
+      return renderSpaceReport(snapshotOf(active))
     },
   }
 }
