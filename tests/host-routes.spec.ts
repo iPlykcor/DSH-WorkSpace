@@ -23,6 +23,7 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import type {
   Context,
   SidebarHttpRequest,
@@ -33,6 +34,14 @@ import type {
   SidebarWebRoute,
 } from '../src/context-types.ts'
 import { API_PREFIX, apply } from '../src/index.ts'
+import { WORKSPACE_CONTEXT_NAME, WORKSPACE_CONTEXT_ORDER } from '../src/workspace-context.ts'
+
+/** One runtime-context contribution, captured where the host service would take it. */
+interface ContextContribution {
+  name: string
+  order: number
+  text: string | ((context: AssembleContext) => string)
+}
 
 /** The one session id the fake store knows; any other id is a cold session. */
 const SESSION = 'sess-routes'
@@ -74,6 +83,8 @@ interface Harness {
   route: SidebarWebRoute
   /** Every tool definition the plugin registered (the model-visible surface). */
   tools: SidebarToolDefinition[]
+  /** Every runtime-context contribution it registered (the per-turn model surface). */
+  contexts: ContextContribution[]
   /** Mutate AFTER activation to simulate writes the host session log records. */
   events: SidebarSessionEvent[]
   /** Everything the plugin logged (the fake captures `ctx.logger.info/warn`). */
@@ -105,6 +116,7 @@ interface MountOptions {
 function mount(options: MountOptions = {}): Harness {
   const routes: SidebarWebRoute[] = []
   const tools: SidebarToolDefinition[] = []
+  const contexts: ContextContribution[] = []
   const disposers: Array<() => void> = []
   const logs: string[] = []
   const events = options.events ?? []
@@ -121,6 +133,19 @@ function mount(options: MountOptions = {}): Harness {
         tools.push(definition)
         return () => { /* the fake owns teardown */ }
       },
+    },
+    // The host resolves injected services before its callback runs. `systemPrompt`
+    // is the only service this plugin injects, and only from inside `apply`.
+    inject: (names: string[], callback: (scope: unknown) => void): void => {
+      if (!names.includes('systemPrompt')) return
+      callback({
+        systemPrompt: {
+          context(contribution: ContextContribution): () => void {
+            contexts.push(contribution)
+            return () => { /* the fake owns teardown */ }
+          },
+        },
+      })
     },
     sessions: {
       get: (id: string) => (id === SESSION ? { header: { cwd }, snapshotEvents: () => events } : undefined),
@@ -142,6 +167,7 @@ function mount(options: MountOptions = {}): Harness {
   return {
     route: routes[0]!,
     tools,
+    contexts,
     events,
     logs,
     dispose: () => { for (const disposer of disposers) disposer() },
@@ -1314,5 +1340,50 @@ describe('model-visible operation space tool', () => {
     const tool = harness.tools[0]!
     await expect(tool.execute({}, { signal: new AbortController().signal }))
       .rejects.toThrow('needs the calling session')
+  })
+})
+
+describe('operation-space runtime context (the host wiring)', () => {
+  /**
+   * Resolve a captured contribution the way the host service does.
+   * @param contribution - the contribution the plugin registered.
+   * @param sessionId - the assembled agent's session, or undefined (diagnostics).
+   * @returns the contributed text.
+   */
+  function textFor(contribution: ContextContribution, sessionId?: string): string {
+    const provider = contribution.text
+    if (typeof provider !== 'function') throw new Error('expected a text provider, not fixed text')
+    return provider(sessionId === undefined
+      ? {}
+      : { agent: { session: { id: sessionId } } } as unknown as AssembleContext)
+  }
+
+  it('registers exactly one runtime context, in the injected service scope', () => {
+    const harness = mount()
+    expect(harness.contexts.map(contribution => contribution.name)).toEqual([WORKSPACE_CONTEXT_NAME])
+    expect(harness.contexts[0]!.order).toBe(WORKSPACE_CONTEXT_ORDER)
+  })
+
+  it('is silent until a space is active, then carries the labels and never a path', async () => {
+    const harness = mount()
+    const contribution = harness.contexts[0]!
+
+    // No space yet: contributing nothing is what keeps sessions that never apply
+    // one from paying for a line they cannot use.
+    expect(textFor(contribution, SESSION)).toBe('')
+
+    await activate(harness)
+    const text = textFor(contribution, SESSION)
+    expect(text).toContain('Operation space "routes" is active in this session.')
+    expect(text).toContain('Roots by label')
+    // The exact wording and the no-path rule are pinned next door
+    // (`workspace-report.spec.ts`, `workspace-context.spec.ts`); what matters HERE
+    // is that the host wiring really routes through them.
+    expect(text).toContain('`octopus_space`')
+    expect(text).not.toContain(roRoot)
+    expect(text).not.toContain(manifestPath)
+
+    // An assembly with no agent (diagnostics) gets nothing rather than a guess.
+    expect(textFor(contribution)).toBe('')
   })
 })

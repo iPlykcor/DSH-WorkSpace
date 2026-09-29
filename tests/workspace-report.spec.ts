@@ -16,7 +16,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { WsRootSnapshot, WsSnapshot } from '../src/workspace-state.ts'
-import { renderNoSpaceReport, renderSpaceReport } from '../src/workspace-report.ts'
+import { renderNoSpaceReport, renderSpaceLabels, renderSpaceReport } from '../src/workspace-report.ts'
+import { WORKSPACE_TOOL_NAME } from '../src/workspace-tool.ts'
 
 /** One root of a fixture snapshot. */
 function root(overrides: Partial<WsRootSnapshot> & { path: string; label: string }): WsRootSnapshot {
@@ -138,5 +139,76 @@ describe('operation-space report (the model-facing view)', () => {
     expect(report).toContain('.dsh-octopus')
     expect(report).not.toContain('{')
     expect(report.length).toBeGreaterThan(0)
+  })
+})
+
+describe('operation-space label table (the runtime-context view)', () => {
+  /** The same ten-root fixture the report's size guard uses. */
+  const tenRoots = [
+    root({ path: './demo/rw', label: 'rw' }),
+    root({ path: './demo/ro', label: 'ro' }),
+    root({ path: 'C:/Users/E-peng.liu/Desktop/新人培养', label: '新人培养', access: 'readWrite' }),
+    root({ path: 'C:/Users/E-peng.liu/Desktop/app', label: 'app', access: 'readWrite' }),
+    root({ path: 'C:/Users/E-peng.liu/Desktop/简历', label: '简历', access: 'readWrite' }),
+    root({ path: 'C:/Users/E-peng.liu/Desktop/dsh-better-sidebar-offline', label: 'dsh-better-sidebar-offline' }),
+    root({ path: 'D:/VS调试', label: 'VS调试', access: 'readWrite' }),
+    root({ path: 'D:/liupeng', label: 'liupeng', access: 'readWrite' }),
+    root({ path: 'D:/现场问题', label: '现场问题', access: 'readWrite' }),
+    root({ path: 'D:\\DSH_WorkSpace\\dsh-workspace_Test2', label: 'dsh-workspace_Test2' }),
+  ]
+
+  it('lists the labels by access, names the tool, and stays on one line', () => {
+    const labels = renderSpaceLabels(snapshot([
+      root({ path: './demo/rw', label: 'rw', access: 'readOnly' }),
+      root({ path: 'D:/VS调试', label: 'VS调试', access: 'readWrite' }),
+      root({ path: 'D:/现场问题', label: '现场问题', access: 'readWrite' }),
+    ]), WORKSPACE_TOOL_NAME)
+    expect(labels).toBe(
+      'Operation space "demo" is active in this session. '
+      + 'Roots by label: read-write - VS调试, 现场问题; read-only - rw. '
+      + 'Absolute paths: call the `octopus_space` tool.',
+    )
+  })
+
+  it('omits a group with no roots, and states each level once', () => {
+    const writeOnly = renderSpaceLabels(snapshot([root({ path: 'D:/a', label: 'a', access: 'readWrite' })]), WORKSPACE_TOOL_NAME)
+    expect(writeOnly).not.toContain('read-only')
+    expect(writeOnly.match(/read-write/g)).toHaveLength(1)
+    const readOnlyOnly = renderSpaceLabels(snapshot([root({ path: 'D:/a', label: 'a' })]), WORKSPACE_TOOL_NAME)
+    expect(readOnlyOnly).not.toContain('read-write')
+  })
+
+  it('keeps the manifest order inside a group and carries both markers', () => {
+    const labels = renderSpaceLabels(snapshot([
+      root({ path: 'D:/z', label: 'z', access: 'readWrite' }),
+      root({ path: 'D:/a', label: 'a', access: 'readWrite', exists: false }),
+      root({ path: 'D:/m', label: 'm', access: 'readWrite', listed: false, exists: false }),
+    ]), WORKSPACE_TOOL_NAME)
+    expect(labels).toContain('read-write - z, a (missing), m (implicit, missing)')
+  })
+
+  it('carries NO absolute path — that is the whole point of it being separate', () => {
+    const labels = renderSpaceLabels(snapshot(tenRoots), WORKSPACE_TOOL_NAME)
+    for (const entry of tenRoots) {
+      expect(labels, `the label table must not carry ${entry.path}`).not.toContain(entry.path)
+    }
+    expect(labels).not.toContain('/')
+    // Every label survives: the model's job is to recognise the user's words.
+    for (const entry of tenRoots) expect(labels).toContain(entry.label)
+  })
+
+  it('names the tool from the one place that owns the name', () => {
+    const labels = renderSpaceLabels(snapshot(tenRoots), WORKSPACE_TOOL_NAME)
+    expect(labels).toContain(`\`${WORKSPACE_TOOL_NAME}\``)
+  })
+
+  it('is far smaller than the tool report, because it is paid every turn', () => {
+    const labels = renderSpaceLabels(snapshot(tenRoots), WORKSPACE_TOOL_NAME)
+    const report = renderSpaceReport(snapshot(tenRoots))
+    expect(labels.length * 2).toBeLessThan(report.length)
+  })
+
+  it('returns nothing for a space that declares no roots', () => {
+    expect(renderSpaceLabels(snapshot([]), WORKSPACE_TOOL_NAME)).toBe('')
   })
 })

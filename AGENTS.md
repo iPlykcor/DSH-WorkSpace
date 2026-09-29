@@ -135,6 +135,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -DshHome 
 
     这也是本包**唯一**写用户磁盘的地方（三个入口：右键空白处加入、点小锁改权限、行右键移出），所以 `src/index.ts` 文件头对"只读是结构性的"已改成精确表述：改的是**策略文件**（清单），不是声明范围内的内容，且只能由界面上的一次授权动作触发。测试：`tests/manifest-edit.spec.ts`（尾随注释、空数组、CRLF、无 `folders` 时拒绝、回读失败必须还原且不留残留，以及改写权限、删除条目两组）、`tests/body-menu.spec.tsx`（只有一项、飞行中禁用而非隐藏、退役的读写 id 不再映射）、`tests/row-menu.spec.tsx`（两项、danger、权限行说的是目标级别、隐含根禁用且带说明）、`tests/root-markers.spec.tsx`（两种状态、按钮与不可点两种形态）、`tests/host-routes.spec.ts` 与冒烟里各自的探针。
 
+14. **模型可见的第二条通道：运行时上下文（`systemPrompt.context`），只放标签、不放路径**：0.9.0 起，作业区的**标签表**随每次组装进入模型的运行时上下文，所以"看一下 VS调试"里的标签**第一轮**就可解析，不必等模型想起调工具。注册形态是 `ctx.inject(['systemPrompt'], (scope) => ctx.effect(() => scope.systemPrompt.context(createSpaceContext(registry)), '…'))`——**`systemPrompt` 绝不进插件级 `inject` 数组**（§3.1 的 patch 层致命形态），effect 归注入回调所有，卸载与 HMR 都能收回注册。四条已被测钉住的约束：(1) **空文本等于没有贡献**（服务丢弃空串），所以无 `agent`（诊断组装：`agent` 在那个接口里是可选的合并扩展字段）、无激活作业区都返回 `''`，不用作业区的会话一分钱不付；(2) `text` 是**每次组装求值的 provider**，不是注册时定格的字符串，所以后应用的作业区**下一轮**就出现（读的是活 `registry`）；`name` 唯一（重名注册直接抛），`order` 是**数字**（服务自带的运行时上下文是 110 沙箱策略 / 115 审批 / 120 子代理委派，本包取 130，排在策略之后）；(3) **绝对路径不进上下文**——上下文按**每轮**付费，工具结果按**每次调用**付费，同一份十根快照下标签表的长度不到报告的一半（体积守卫在 `tests/workspace-report.spec.ts`），路径仍只有 `octopus_space` 能给；(4) 措辞与规格都在 `src/workspace-report.ts` 的 `renderSpaceLabels`（与报告共用 `implicit` / `missing` 标记逻辑），工具名由调用方传入，避免报告模块反向 import 工具模块成环。**一个只在构建里现形的坑**：`AssembleContext.agent` 不是 system-prompt 包自己声明的字段，而是 `dsh-agent` 对该接口的**合并扩展**——增强只对"加载了那个模块"的程序生效，于是 src-only 的 `tsconfig.build.json` 看不到它（`pnpm typecheck` 因为测试程序另有导入而通过，`pnpm build` 却报 `TS2339`）。修法是 `workspace-context.ts` 里一句 `import type {} from '@deepseek-ai/dsh-agent'`（仅类型、运行时被擦除，两个包因此都只是 devDependencies，零运行时依赖不变）。宿主**真的收下**这份注册由冒烟兜底（注册发生在 `apply` 内，服务拒收就是插件加载失败，冒烟的 loader/inject 检查会红）；宿主接线由 `tests/host-routes.spec.ts` 的假 `systemPrompt` 锁。
+
 ---
 
 ## 4. 开发规则速查
@@ -142,7 +144,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -DshHome 
 - **先读后改**：对已存在文件执行 `edit` / `write` 前必须先 `read`（链式工具强制）；批量修改时先并行读全部目标文件，再逐个编辑。
 - **皮肤契约**：视觉值只消费 `--dsw-alias-*` / `--dsw-font-*` 令牌（唯一例外是内置文件页自己也在用的 `--dsh-content-font-size-secondary`——**与内置对齐优先于令牌洁癖**），不硬编码颜色；没有 CSS module 到达这个界面，样式是内联的，所以内置那套 `:hover` 只能用状态复刻，`.level .level` 那种嵌套缩进只能按深度乘出来。凡是"要和内置一致"的度量，一律进 `src/client/tree-metrics.ts`，不要在组件里散落数字。
 - **地址语法不手抄**：`src/client/file-address.ts` 之所以自己构造字符串，是因为它所在包不在客户端模块表内（导入会被纯度门拒）。它的正确性由 `tests/file-address.spec.ts` 对着**产品自己的 `parseFileAddress`** 做往返锁定——改实现必须同步该测试，否则就是猜。
-- **语义改动有四个同步点**：`workspace-schema.ts`（解析与默认值）↔ `workspace-policy.ts`（读/写基集）↔ `workspace-skill.ts`（模型可见的技能文案）↔ `workspace-tool.ts` + `workspace-report.ts`（模型可见的 `octopus_space` 工具与它的报告措辞：清单标签到绝对路径的唯一出口）。改一个就要看其余几个。《`snapshotOf` 是客户端合同，不要为了让模型少花 token 去改它——该改的是报告。》
+- **语义改动有四个同步点**：`workspace-schema.ts`（解析与默认值）↔ `workspace-policy.ts`（读/写基集）↔ `workspace-skill.ts`（模型可见的技能文案）↔ 模型可见的工具与上下文措辞（`workspace-tool.ts` 的工具定义、`workspace-report.ts` 的 `renderSpaceReport` 与 `renderSpaceLabels`，以及把后者注册成运行时上下文的 `workspace-context.ts`：清单标签到绝对路径的唯一出口）。改一个就要看其余几个。《`snapshotOf` 是客户端合同，不要为了让模型少花 token 去改它——该改的是报告。》
 - **`context-types.ts` 必须保持无 Node 类型**：它在客户端可达的声明图里；它用交叉类型而非 `declare module` 增强，因为宿主与客户端为 `sessions` 声明了不同类型，合并会 TS2717。
 
 ---
@@ -152,7 +154,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -DshHome 
 - **用户文档**：[README.md](README.md)（安装、清单格式、权限模型、限制）。
 - **设计史**：[docs/plans/](docs/plans/)。已移除功能的完整历史见 git tag `archive/sidebar-workbench`。
 - **关键测试守护**：
-  - `tests/host-routes.spec.ts` —— 唯一宿主路由的端到端行为（信任围栏、方法分派、信封、作业区生命周期、根围栏、只读越权报告与还原、冷会话路径、cwd 清单发现、桌面交接的三种拒绝，以及三个写盘路由 `addFolder` / `setFolderAccess` / `removeFolder` 的每一个分支，含"被移出的那条正好是 cwd 时隐含读写根会补回来"与"activatedAt 不因改清单而移动"）；
+  - `tests/host-routes.spec.ts` —— 唯一宿主路由的端到端行为（信任围栏、方法分派、信封、作业区生命周期、根围栏、只读越权报告与还原、冷会话路径、cwd 清单发现、桌面交接的三种拒绝，以及三个写盘路由 `addFolder` / `setFolderAccess` / `removeFolder` 的每一个分支，含"被移出的那条正好是 cwd 时隐含读写根会补回来"与"activatedAt 不因改清单而移动"，以及挂载面本身的三条等式：恰好一条 prefix 路由、恰好一个 `octopus_space` 工具、恰好一份运行时上下文注册——后者的 provider 按组装上下文求值，无 `agent` 与无激活作业区都返回空串，激活后给出标签且不含任何绝对路径）；
   - `tests/native-reveal.spec.ts` —— 桌面交接的 argv 构造（`/select,` 与目标必须是**一个** argv 元素、目标里不得出现引号或 file URL、含逗号的文件名降级为打开所在目录、路径永不被拼进命令字符串、三个平台各一条），**刻意不启动任何进程**；成功分支会在跑测试的机器上弹真实窗口，所以按设计只人工验证，而且要查**可见性与选中项**而不是窗口数量；
   - `tests/tree-metrics.spec.ts` —— 与内置文件页的**度量契约**：行盒、间距、18px 缩进、页头 38px、工具按钮、note 与悬停令牌逐项钉死（内置一改就红）；**刻意不断言渲染**，像素级一致只能人眼复核；
   - `tests/entry-order.spec.ts` —— 与内置一致的行序（目录优先 + 自然序、大小写不敏感、不改动入参）；
@@ -162,7 +164,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -DshHome 
   - `tests/host-types.spec.ts` —— 手写结构镜像对真实宿主类型的编译期可赋值性（`inspect` 那类漂移的守门人；含 `ShortcutCommand` 镜像：方向只能是"真实命令 → 镜像"，因为真实 `id` 是 branded 字符串，反方向由 `client-tab.spec.ts` 在运行时锁）；
   - `tests/file-address.spec.ts` —— 文件地址对产品解析器的往返（最容易静默失配的一处）；
   - `tests/workspace-schema.spec.ts` —— 清单解析、JSONC、默认值；
-  - `tests/workspace-report.spec.ts` —— **模型拿到的那份报告的账本**：按权限分组（级别只在标题里出现一次，不逐根重复）、一根一行 `label = absolute path`、组内保持清单顺序、空组不出现、`missing` 与 `implicit` 两个标记（以及两者同时出现时的顺序）、不含任何模型用不上的线格式字段（`sessionId`/`cwd`/`ci`/`activatedAt`/`access` 键）、以及**体积守卫**（同一份快照，报告长度必须小于线格式的一半——否则"直接序列化快照"看起来像个合理改动，实际把成本翻倍）；外加"未激活"那一句必须说明作业区从哪来；
+  - `tests/workspace-report.spec.ts` —— **模型拿到的那份报告的账本**：按权限分组（级别只在标题里出现一次，不逐根重复）、一根一行 `label = absolute path`、组内保持清单顺序、空组不出现、`missing` 与 `implicit` 两个标记（以及两者同时出现时的顺序）、不含任何模型用不上的线格式字段（`sessionId`/`cwd`/`ci`/`activatedAt`/`access` 键）、以及**体积守卫**（同一份快照，报告长度必须小于线格式的一半——否则"直接序列化快照"看起来像个合理改动，实际把成本翻倍）；外加"未激活"那一句必须说明作业区从哪来；同一文件里还有**标签表** `renderSpaceLabels` 的一组：按权限一行列出标签、空组不出现、组内保持清单顺序、两个标记照旧、**任何一个根的绝对路径都不得出现**、工具名来自 `workspace-tool.ts` 的唯一来源、以及"标签表长度不到报告一半"的体积守卫；
+  - `tests/workspace-context.spec.ts` —— **每轮那份标签表的账本**（用真实 `WorkspaceRegistry` + 临时清单，不手搓快照）：名字与 `order` 稳定且排在策略类上下文之后、激活后给出标签与工具名而**没有任何绝对路径**、无激活作业区／未知会话／无 `agent`（诊断组装）三种情况都返回空串、provider 读**活**注册表（后应用的作业区下一轮就出现）、会话之间互不串台；
   - `tests/manifest-edit.spec.ts` —— **唯一写盘点**的编辑器：追加后的文本逐字节断言（尾随 `// 注释` 必须留在原行、逗号在条目之后）、空数组就地展开、注释留在空数组里、CRLF 保持、没有 `folders` 时明确拒绝、备份等于原文且不是认领的清单扩展名、回读失败必须**原文件逐字节还原且不留备份/临时文件**；改写权限的一组：已有 `access` 只换值、没有就补成员且注释存活、字符串简写改写成对象形式且 token 原样、已是该级别时 `changed:false` 且不留备份、找不到/匹配多个都报错；删除条目的一组（15 例）：中间条目 / 末条（前一条无尾逗号，以及数组本身带 JSONC 尾逗号——后者会把前一个分隔逗号留成数组的尾逗号，两种都不出现 `,,`）、首条、字符串简写条目（含 `\/` 转义按 JSON 解码）、CRLF、同行注释随条目一起删、对象条目内部的注释与空行随它一起走、单行数组只吃掉自己那一段、无匹配与匹配多条都报错、仅剩一条**写之前就拒绝**（`folders` 必须非空）、以及"追加 → 删除"的逐字节往返；`removeFolderEntryInManifest` 一组（4 例）：写入后目录里只多出侧车备份且它与原文相等、回读失败逐字节还原且无残留、未知条目连文件带目录都不动、仅剩一条的拒绝同样不留任何东西；
   - `tests/body-menu.spec.tsx` —— 空白处菜单的契约：**只有一项**且映射到 `readOnly`（退役的 `addFolder.readWrite` id 必须仍是 `undefined`，防止它复活）、文案非空、选择器飞行中**禁用而不是隐藏**；它同时证明 `vitest.config.ts` 的 primitives 别名能解析新值导入的 `Menu`；
   - `tests/row-menu.spec.tsx` —— 行菜单的契约：声明过的根才有两项且移出在前、移出是 `danger` 行而权限行不是、权限行**说的是要切到哪一级**（两个级别的文案必须不同，否则看着像空操作）、飞行中两行禁用而非隐藏、隐含 cwd 根两行禁用并**带一行文字说明**（不能只留一个没人会打开的 tooltip）、只有自己那两个 id 能映射出意图（`addFolder.readOnly` 不许被当成行操作）；

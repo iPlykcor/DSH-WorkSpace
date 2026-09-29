@@ -51,6 +51,7 @@ import { rollbackWsViolation, scanWsViolations } from './workspace-detector.ts'
 import { discoverManifests } from './workspace-discovery.ts'
 import { hostCaseInsensitive, snapshotOf, WorkspaceRegistry } from './workspace-state.ts'
 import { WORKSPACE_SKILL } from './workspace-skill.ts'
+import { createSpaceContext } from './workspace-context.ts'
 import { createWorkspaceTool } from './workspace-tool.ts'
 
 /** Plugin identity for cordis.yml rows. */
@@ -469,6 +470,23 @@ export function apply(ctx: Context): void {
     () => ctx.tools.register(createWorkspaceTool(workspaceRegistry)),
     'octopus: register the operation-space tool',
   )
+
+  // Make the LABELS visible from the first turn, not only when the model thinks to
+  // ask. The words a user types ("看一下 VS调试") are the manifest's labels, so a
+  // model that has not been shown them cannot resolve one — see workspace-context.ts
+  // for why this carries the labels but not the absolute paths.
+  //
+  // Wrapped in `ctx.inject` rather than named in the plugin-level `inject` array:
+  // declaring a base-bundle service there is fatal for an external plugin mounted
+  // from the patch layer (AGENTS §3.1, measured in 0.3.1). The `ctx.effect` inside
+  // owns the registration, so unmount and HMR both withdraw it, and the
+  // contribution is silent for a session with no active space.
+  ctx.inject(['systemPrompt'], (scope) => {
+    ctx.effect(
+      () => scope.systemPrompt.context(createSpaceContext(workspaceRegistry)),
+      'octopus: register the operation-space runtime context',
+    )
+  })
 
   const api = buildApi(ctx, workspaceRegistry)
 

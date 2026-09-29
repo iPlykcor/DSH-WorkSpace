@@ -37,17 +37,64 @@ const MISSING = 'missing'
 const IMPLICIT = 'implicit'
 
 /**
+ * The markers a root earns, in render order.
+ *
+ * Exactly two conditions earn one, because both change what a model should do
+ * next: a declared root whose folder is gone right now (`missing`), and the
+ * session cwd's implicit root, which no manifest entry declares and which
+ * therefore cannot be re-permissioned or removed on request (`implicit`).
+ * `implicit` comes first because it explains why a manifest the user is looking
+ * at does not mention this folder — the more surprising of the two facts.
+ * @param root - the root to describe.
+ * @returns the markers, or an empty array when it earns none.
+ */
+function markersOf(root: WsRootSnapshot): string[] {
+  const marks: string[] = []
+  if (!root.listed) marks.push(IMPLICIT)
+  if (!root.exists) marks.push(MISSING)
+  return marks
+}
+
+/**
+ * Attach markers to a name: `VS调试 (missing)`, or the name alone.
+ * @param name - the label, or the `label = path` text.
+ * @param marks - markers from {@link markersOf}.
+ * @returns the decorated name.
+ */
+function withMarkers(name: string, marks: readonly string[]): string {
+  return marks.length === 0 ? name : `${name} (${marks.join(', ')})`
+}
+
+/**
  * Render one root as `label = path`, plus its markers.
  * @param root - the root to render.
  * @returns one line's worth of text (no indentation; the caller adds it).
  */
 function renderRoot(root: WsRootSnapshot): string {
-  const marks: string[] = []
-  // `implicit` first: it explains why a manifest the user is looking at does not
-  // mention this folder, which is the more surprising of the two facts.
-  if (!root.listed) marks.push(IMPLICIT)
-  if (!root.exists) marks.push(MISSING)
-  return `${root.label} = ${root.path}${marks.length === 0 ? '' : ` (${marks.join(', ')})`}`
+  return withMarkers(`${root.label} = ${root.path}`, markersOf(root))
+}
+
+/**
+ * Render one root for the label table: the word the user says, nothing else.
+ * @param root - the root to render.
+ * @returns the label, plus its markers.
+ */
+function renderLabel(root: WsRootSnapshot): string {
+  return withMarkers(root.label, markersOf(root))
+}
+
+/**
+ * Split a snapshot's roots by access, read-write first.
+ *
+ * Read-write leads because that is the set an agent can act on.
+ * @param snapshot - the active space's wire snapshot.
+ * @returns one `[heading, roots]` pair per access level, empty groups included.
+ */
+function groupByAccess(snapshot: WsSnapshot): Array<[string, WsRootSnapshot[]]> {
+  return [
+    ['read-write', snapshot.roots.filter(root => root.access === 'readWrite')],
+    ['read-only', snapshot.roots.filter(root => root.access === 'readOnly')],
+  ]
 }
 
 /**
@@ -67,14 +114,38 @@ function renderGroup(heading: string, roots: readonly WsRootSnapshot[]): string[
  * @returns the model-facing report.
  */
 export function renderSpaceReport(snapshot: WsSnapshot): string {
-  const readWrite = snapshot.roots.filter(root => root.access === 'readWrite')
-  const readOnly = snapshot.roots.filter(root => root.access === 'readOnly')
   return [
     `Operation space "${snapshot.name}" is ACTIVE in this session.`,
     `Manifest: ${snapshot.manifestPath}`,
-    ...renderGroup('read-write', readWrite),
-    ...renderGroup('read-only', readOnly),
+    ...groupByAccess(snapshot).flatMap(([heading, roots]) => renderGroup(heading, roots)),
   ].join('\n')
+}
+
+/**
+ * Render the LABEL TABLE: every declared label, grouped by access, on one line.
+ *
+ * WHY A THIRD RENDERING, AND WHY IT OMITS THE PATHS. This text is not a tool
+ * result but a runtime-context contribution, so the model pays for it on EVERY
+ * assembly instead of once per call. It exists because the words a user types
+ * ("看一下 VS调试") are the manifest's LABELS: without them in front of the model a
+ * label is an unknown token, and the model either guesses a path or asks a
+ * question the user finds obvious. The absolute paths stay behind the tool for
+ * exactly that cost reason — on the same ten-root fixture the test's size guard
+ * pins this table below half the report's length, and the tool remains the only
+ * place that can answer "what is the path".
+ * @param snapshot - the active space's wire snapshot.
+ * @param toolName - the tool that reports the absolute paths, named so the reader
+ *   knows where to get them. Passed in because this module must not import the
+ *   registration module that owns the name (that would be an import cycle).
+ * @returns the model-facing label table, or `''` when the space declares no roots.
+ */
+export function renderSpaceLabels(snapshot: WsSnapshot, toolName: string): string {
+  const groups = groupByAccess(snapshot)
+    .filter(([, roots]) => roots.length > 0)
+    .map(([heading, roots]) => `${heading} - ${roots.map(renderLabel).join(', ')}`)
+  if (groups.length === 0) return ''
+  return `Operation space "${snapshot.name}" is active in this session. Roots by label: ${groups.join('; ')}. `
+    + `Absolute paths: call the \`${toolName}\` tool.`
 }
 
 /**
