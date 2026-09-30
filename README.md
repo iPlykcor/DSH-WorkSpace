@@ -75,9 +75,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install-offline.ps1 -DryRu
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install-offline.ps1 -Yes      # 真装
 ```
 
-它是**纯文件操作**：不跑 npm / pnpm，不需要网络。做的事与范围：读包清单确认完整 → 备份 profile 的 `package.json` 到 `octopus-offline-backups\<时间戳>\` → **先探测 DSH 版本**（要落在 `^0.1.7-rc.1 || ^0.2.0-rc.1`，即 `0.1.7-rc.1 ≤ 版本 < 0.3.0`；不匹配就拒绝，除非 `-Force`——不匹配的 bundle 会在启动时被静默跳过，页签凭空消失而日志里没有插件报错）→ 复制 `package\` 进 `profiles\<profile>\node_modules\dsh-octopus-operation-space\` → 写**两处**挂载项（`dependencies` 与 `dsh.profile.bundles`）→ 逐文件比对 `SHA256SUMS.txt` 并回读清单 → 任何失败都还原清单、还原被替换的旧目录、清掉半成品。它**绝不重启** `dsh web`。
+它是**纯文件操作**：不跑 npm / pnpm，不需要网络。做的事与范围：读包清单确认完整 → 选定目标 profile（**默认 `-Profile all`：装进 `profiles\` 下所有 profile**）→ **先探测 DSH 安装与版本**（要落在 `^0.1.7-rc.1 || ^0.2.0-rc.1`，即 `0.1.7-rc.1 ≤ 版本 < 0.3.0`；不匹配就拒绝，除非 `-Force`——不匹配的 bundle 会在启动时被静默跳过，页签凭空消失而日志里没有插件报错）→ 逐个 profile：备份它的 `package.json` 到 `octopus-offline-backups\<时间戳>\` → 复制 `package\` 进 `profiles\<profile>\node_modules\dsh-octopus-operation-space\` → 写**两处**挂载项（`dependencies` 与 `dsh.profile.bundles`）→ 逐文件比对 `SHA256SUMS.txt` 并回读清单 → 任何失败**把所有本次动过的 profile 一起回滚**（还原清单、还原被替换的旧目录、清掉半成品）。它**绝不重启**宿主。
 
-前提：这台机器已经装好 DSH（本包不含 DSH 本身），且目标 profile 已经成形——全新 home 先跑一次 `dsh web --port 0 --no-open` 再停掉即可。
+前提：这台机器已经装好 DSH（本包不含 DSH 本身），且至少一个 profile 已经成形——命令行版先跑一次 `dsh web --port 0 --no-open` 再停掉，**桌面安装版（Electron 应用）启动一次**即可。
+
+> **桌面安装版**（0.2.0-rc.2 实测）：它自带整套运行时（`resources\runtime\` 下的 `cli\bin\dsh.cmd`、Node 24.18.1、pnpm 11.7.0），所以内网机器不需要另装 Node / pnpm / 全局 `dsh`；**版本要问它自带的 CLI**（PATH 上可能并存一个更旧的全局 `dsh`——实测桌面版 0.2.0-rc.2 而 PATH 上是 0.2.0-rc.1），安装器两条路都会试。它创建的 `profiles\desktop` 由应用**独占管理**（CLI 直接拒绝碰它），而它实际启动的可能是别的 profile（实测是 `web`），**这就是默认 `-Profile all` 的原因**。装之前请**从托盘退出应用**，装完再启动。
+
+详细步骤、手工兜底写法（两处挂载项的 JSON 片段）、验证清单与已知坑都在包内的 **`INSTALL-OFFLINE.md`**。
 
 详细步骤、手工兜底写法（两处挂载项的 JSON 片段）、验证清单与已知坑都在包内的 **`INSTALL-OFFLINE.md`**。
 

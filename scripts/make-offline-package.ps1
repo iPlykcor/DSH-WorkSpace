@@ -9,7 +9,8 @@ registry access:
   octopus-offline-<version>\
     INSTALL-OFFLINE.md            the operator guide (UTF-8, Chinese)
     SHA256SUMS.txt                one hash per file, checked by the installer
-    install-offline.ps1           pure file-operation installer (backup, both mount entries, rollback)
+    install-offline.ps1           pure file-operation installer (every profile by default, backup,
+                                  both mount entries, per-file hashes, rollback across profiles)
     uninstall-plugin.ps1          the repo's uninstaller, which needs no working `dsh` either
     dsh-octopus-operation-space-<version>.tgz
     package\                      the exact published file set (package.json `files`)
@@ -242,3 +243,7 @@ Write-Host ""
 Write-Host "  On the air-gapped host: copy the bundle, then"
 Write-Host "    powershell -NoProfile -ExecutionPolicy Bypass -File .\install-offline.ps1 -DryRun"
 Write-Host "    powershell -NoProfile -ExecutionPolicy Bypass -File .\install-offline.ps1 -Yes"
+Write-Host ""
+Write-Host "  It targets EVERY existing profile by default: which profile a host boots is not always"
+Write-Host "  guessable (a desktop install manages 'desktop' but may boot 'web'); -Profile <name> narrows it."
+Write-Host "  Desktop app: quit it from the tray before installing, and start it again afterwards."
