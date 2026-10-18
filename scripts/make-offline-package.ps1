@@ -9,6 +9,8 @@ registry access:
   octopus-offline-<version>\
     INSTALL-OFFLINE.md            the operator guide (UTF-8, Chinese)
     SHA256SUMS.txt                one hash per file, checked by the installer
+    deploy-offline.cmd            double-click entry point (launches the .ps1 below)
+    deploy-offline.ps1            one-click wrapper: needs no arguments, pauses before closing
     install-offline.ps1           pure file-operation installer (every profile by default, backup,
                                   both mount entries, per-file hashes, rollback across profiles)
     uninstall-plugin.ps1          the repo's uninstaller, which needs no working `dsh` either
@@ -209,7 +211,12 @@ Write-Pass "INSTALL-OFFLINE.md ($($guide.Length) chars)"
 
 Copy-Item -Path (Join-Path $scriptDir 'offline\install-offline.ps1') -Destination (Join-Path $bundleDir 'install-offline.ps1') -Force
 Copy-Item -Path (Join-Path $scriptDir 'uninstall-plugin.ps1') -Destination (Join-Path $bundleDir 'uninstall-plugin.ps1') -Force
-Write-Pass "install-offline.ps1 and uninstall-plugin.ps1"
+Copy-Item -Path (Join-Path $scriptDir 'offline\deploy-offline.ps1') -Destination (Join-Path $bundleDir 'deploy-offline.ps1') -Force
+Copy-Item -Path (Join-Path $scriptDir 'offline\deploy-offline.cmd') -Destination (Join-Path $bundleDir 'deploy-offline.cmd') -Force
+foreach ($entry in @('install-offline.ps1', 'uninstall-plugin.ps1', 'deploy-offline.ps1', 'deploy-offline.cmd')) {
+  if (-not (Test-Path (Join-Path $bundleDir $entry))) { Write-Fail "the bundle is missing $entry" }
+}
+Write-Pass "install-offline.ps1, uninstall-plugin.ps1, deploy-offline.ps1/.cmd"
 
 Write-Step "write SHA256SUMS.txt"
 $sums = New-Object System.Collections.Generic.List[string]
@@ -240,8 +247,11 @@ $totalMb = [Math]::Round(((Get-ChildItem -Path $bundleDir -Recurse -File | Measu
 Write-Host "  bundle : $bundleDir  ($totalMb MB)"
 if (-not $SkipZip) { Write-Host "  zip    : $(Join-Path $OutDir "$bundleName.zip")" }
 Write-Host ""
-Write-Host "  On the air-gapped host: copy the bundle, then"
-Write-Host "    powershell -NoProfile -ExecutionPolicy Bypass -File .\install-offline.ps1 -DryRun"
+Write-Host "  On the air-gapped host: copy the bundle, extract it, then"
+Write-Host "    double-click deploy-offline.cmd"
+Write-Host "    (or right-click deploy-offline.ps1 -> 'Run with PowerShell')"
+Write-Host "  Both take no arguments; add -DryRun first to see the plan and write nothing."
+Write-Host "  The manual form, if a policy blocks both:"
 Write-Host "    powershell -NoProfile -ExecutionPolicy Bypass -File .\install-offline.ps1 -Yes"
 Write-Host ""
 Write-Host "  It targets EVERY existing profile by default: which profile a host boots is not always"

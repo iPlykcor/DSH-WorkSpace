@@ -6,11 +6,44 @@
 >
 > 两类 DSH 都支持：**命令行安装版**（全局 `dsh` 命令）与 **桌面安装版**（Electron 应用，如 `DeepSeek Harness.exe`）。桌面版的差别集中在第 2.2 与 3.3 节。
 
+## 一键安装（只想要结果的话看这一节）
+
+**双击 `deploy-offline.cmd`**，然后按提示按一下回车关窗口。就这样——不需要打开终端，不需要记参数，不需要 `-ExecutionPolicy`。
+
+它做的事和下面的 `install-offline.ps1 -Yes` **完全一样**（同一份安装逻辑：备份 → 复制 → 写两处挂载项 → 逐文件校验 → 失败整体回滚），只是替你补齐了三件鼠标操作容易漏的事：
+
+| 鼠标操作的坑 | `deploy-offline` 怎么处理 |
+| --- | --- |
+| 右击/双击**不传任何参数** | 自动补上 `-Yes` 与 `-Profile all`（装进所有已存在的 profile） |
+| 工作目录不是包目录（Explorer 从 `C:\Windows\System32` 起进程） | 一切路径从脚本自己所在的目录解析，并用绝对路径传下去 |
+| 窗口在进程退出瞬间**关闭**，来不及看结果 | 成功和失败都会停住等你按回车 |
+
+> **关于「右键 → 使用 PowerShell 运行」**：菜单里有这一项时，右击 `deploy-offline.ps1` 同样可用（它就是上面那个 `.cmd` 所调用的脚本）。但**有些机器根本没有这一项**——实测本机就是：`assoc .ps1` 报 `File association not found`，注册表里搜不到 `Microsoft.PowerShellScript.1` 这个 ProgId，右击 `.ps1` 只有编辑器选项。这种机器上请用 `.cmd`，或者命令行：
+>
+> ```powershell
+> powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy-offline.ps1
+> ```
+>
+> 顺带一句：`.cmd` 里已经写死了 `-ExecutionPolicy Bypass`，所以即使组策略把 `LocalMachine` 设成 `RemoteSigned`（本机就是这样）、脚本还带着"从网上下载"的标记，也照跑不误。
+
+可加的参数（加在 `.cmd` 后面即可）：
+
+```bat
+deploy-offline.cmd -DryRun              :: 只打印计划，一个字节都不写
+deploy-offline.cmd -Profile web         :: 只装 web 这一个 profile
+deploy-offline.cmd -Uninstall           :: 反过来：把插件从 profile 里摘掉
+deploy-offline.ps1 -DshHome D:\tmp\dsh  :: 装进另一个 home（演练用）
+```
+
+**装完还有一件脚本不能替你做**：如果用的是桌面应用，**从托盘图标退出它，再重新启动**——插件在**下一次启动**时才加载，而安装脚本**绝不**去杀你正在用的宿主（那会丢正在做的事）。重启后右侧栏就会多出「作业区」页签、起始页卡片和 `Ctrl+Alt+S`。
+
 ## 1. 包里有什么
 
 | 路径 | 作用 |
 | --- | --- |
-| `install-offline.ps1` | **推荐入口**：把插件装进 DSH profile（默认**所有**已存在的 profile），并写好两处挂载项；装前备份、装后校验、失败整体回滚 |
+| `deploy-offline.cmd` | **双击入口**：调用 `deploy-offline.ps1`，不需要参数，自带 `-ExecutionPolicy Bypass`，结束时停住窗口 |
+| `deploy-offline.ps1` | 一键部署包装：定位包、补参数、失败时报清楚原因；菜单支持时右击 → 「使用 PowerShell 运行」也可以 |
+| `install-offline.ps1` | 真正的安装器（也是脚本化/可审计的入口）：把插件装进 DSH profile（默认**所有**已存在的 profile），并写好两处挂载项；装前备份、装后校验、失败整体回滚 |
 | `uninstall-plugin.ps1` | 卸载（纯文件操作，不依赖 `dsh` 能否启动） |
 | `package/` | 已经构建好的插件包（`lib/`、`src/`、`package.json`、`dsh.plugin.json`、`cordis.patch.yml`、`README.md`、`LICENSE`） |
 | `dsh-octopus-operation-space-{{PLUGIN_VERSION}}.tgz` | 同一份产物的 npm tarball（内网若有 registry 或已有 pnpm 缓存，也可以走官方 `dsh plugin add`） |
@@ -65,7 +98,7 @@
 
 ### 方式 A（推荐）：离线安装脚本
 
-把整个包目录拷到内网机器上，然后在**包目录**里执行：
+一键双击（见本文开头）调用的就是这一节。要自己敲参数时，把整个包目录拷到内网机器上，然后在**包目录**里执行：
 
 ```powershell
 # 先看计划，不写任何东西

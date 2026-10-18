@@ -68,7 +68,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\make-offline-package
 # 产物：dist\offline\octopus-offline-<版本>\  以及同名 .zip（0.5 MB 量级）
 ```
 
-把整个目录（或 zip）拷进内网，在**包目录**里执行：
+把整个目录（或 zip）拷进内网。**最省事的装法：解压后双击 `deploy-offline.cmd`**（不用打开终端、不用记参数、结束时窗口会停住等你看结果；装完从托盘退出并重启桌面应用，页签就回来了）。它和下面这条命令做的是同一件事：
+
+```powershell
+# 右键 →「使用 PowerShell 运行」deploy-offline.ps1 也行；菜单里没有这一项（本机实测 .ps1 无文件关联）时用 .cmd
+powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy-offline.ps1 -DryRun   # 只打印计划
+powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy-offline.ps1          # 真装（-Yes 由它自动补）
+```
+
+要自己敲底层参数时用 `install-offline.ps1`：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install-offline.ps1 -DryRun   # 只打印计划
@@ -83,7 +91,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install-offline.ps1 -Yes  
 
 详细步骤、手工兜底写法（两处挂载项的 JSON 片段）、验证清单与已知坑都在包内的 **`INSTALL-OFFLINE.md`**。
 
-卸载用包内的 `uninstall-plugin.ps1`（同样是纯文件操作，不依赖 `dsh` 能否启动）：
+卸载用包内的 `uninstall-plugin.ps1`（同样是纯文件操作，不依赖 `dsh` 能否启动），也可以直接 `deploy-offline.cmd -Uninstall`：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\uninstall-plugin.ps1 -Yes
