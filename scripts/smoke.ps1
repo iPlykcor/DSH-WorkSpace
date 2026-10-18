@@ -58,11 +58,17 @@ function Write-Fail {
 
 # POST one API method and return @{ status; body } — including for 4xx/5xx,
 # where Invoke-WebRequest throws and the body must be read off the response.
+#
+# The cookie session is attached unless -Anonymous is given: DSH 0.2.1 fences every
+# API route behind an authenticated Peer (the /api gateway's fence), so an
+# unauthenticated POST answers 401 before the plugin's own envelope is reached.
 function Invoke-OctopusApi {
-  param([string]$Base, [string]$Method, [string]$Json)
+  param([string]$Base, [string]$Method, [string]$Json, [switch]$Anonymous)
+  $session = @{}
+  if (-not $Anonymous -and $null -ne $script:webSession) { $session['WebSession'] = $script:webSession }
   try {
     $response = Invoke-WebRequest -UseBasicParsing -Method POST -Uri "$Base/octopus/api/$Method" `
-      -ContentType 'application/json' -Body $Json
+      -ContentType 'application/json' -Body $Json @session
     return @{ status = [int]$response.StatusCode; body = $response.Content }
   } catch {
     $status = 0
@@ -172,6 +178,25 @@ try {
   $port = ([uri]$url).Port
   Write-Pass "host ready at $base"
 
+  Write-Step 'authenticate the probe session'
+  # The launch URL carries the process token (`?token=`), and GETting it mints the
+  # signed browser cookie — which is what the routes authenticate against. 0.1.7 and
+  # 0.2.0 did not require it, so minting is attempted unconditionally and the
+  # assertions below only demand it when the host actually issued a cookie.
+  $script:webSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+  try {
+    $null = Invoke-WebRequest -UseBasicParsing -Uri $url -WebSession $script:webSession `
+      -MaximumRedirection 0 -ErrorAction Stop
+  } catch {
+    # A 302 to ./api/remote.mux is the SUCCESS shape; the cookie is already stored.
+  }
+  $authenticated = $script:webSession.Cookies.Count -gt 0
+  if ($authenticated) {
+    Write-Pass "minted the browser cookie from the launch URL ($($script:webSession.Cookies.Count) cookie(s))"
+  } else {
+    Write-Pass 'host issued no launch cookie (pre-0.2.1 fence: authority only)'
+  }
+
   Write-Step 'fixture manifest'
   # Written BOM-less on purpose: PowerShell 5.1's `-Encoding UTF8` emits a BOM,
   # which makes the manifest fail JSON parsing (activate then answers 400).
@@ -185,6 +210,12 @@ try {
 
   $session = 'octopus-smoke-cold'
   $stateBody = Body @{ sessionId = $session }
+
+  if ($authenticated) {
+    # The fence must actually be enforced: no cookie, no route. Without this probe a
+    # regression that dropped the fence on a 0.2.1 host would still look green.
+    Assert-Status (Invoke-OctopusApi $base 'workspace.state' $stateBody -Anonymous) 401 'an unauthenticated request is refused by the host fence (401)'
+  }
 
   Write-Step 'route probes: cold session and the root fence'
   Assert-Status (Invoke-OctopusApi $base 'session.cwd' $stateBody) 200 'session.cwd for a cold session (regression: used to 500)'
@@ -429,7 +460,12 @@ try {
   Assert-Status (Invoke-OctopusApi $base 'workspace.state' '{ not json') 400 'malformed body -> 400'
   Assert-Status (Invoke-OctopusApi $base 'workspace.state' '{}') 400 'missing required field -> 400'
   try {
-    $get = Invoke-WebRequest -UseBasicParsing -Method GET -Uri "$base/octopus/api/workspace.state"
+    # Authenticated on purpose: the fence runs before the method guard, so an
+    # anonymous GET is 401 (fence) rather than 405 (method) — and this probe is
+    # about the plugin's own method guard.
+    $getSession = @{}
+    if ($null -ne $script:webSession) { $getSession['WebSession'] = $script:webSession }
+    $get = Invoke-WebRequest -UseBasicParsing -Method GET -Uri "$base/octopus/api/workspace.state" @getSession
     Write-Fail "GET -> expected 405, got $([int]$get.StatusCode)"
   } catch {
     $code = 0

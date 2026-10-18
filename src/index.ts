@@ -23,9 +23,11 @@
  *    model call and never appears in that report; it is auditable in the file and
  *    in the timestamped sidecar backup written next to it.
  *
- * The route passes the same browser-trust fence as the /api gateway:
- * Host-header loopback or the web runtime's `trustedHosts`, read per request
- * from the live service value so the fence tracks the same trust source.
+ * The route passes the same browser-trust fence as the /api gateway. Which
+ * service carries it depends on the host: DSH 0.2.1 moved the fence from
+ * `webRuntime.trustedHosts` into `connection.requestRejection`, which adds peer
+ * authentication on top. Both are read through `ctx.get` per request, and a host
+ * with neither fails closed.
  *
  * `workspace.reveal` is the one method that reaches outside this process: it
  * hands a path INSIDE the active space to the desktop file manager. It is not a
@@ -36,7 +38,8 @@
 import { realpath, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, relative } from 'node:path'
 import type {
-  Context, SidebarHttpRequest, SidebarSessionEvent, SidebarSessionPersistenceService,
+  Context, SidebarConnectionService, SidebarHttpRequest, SidebarSessionEvent,
+  SidebarSessionPersistenceService, SidebarWebRuntime,
 } from './context-types.ts'
 import { listDirectory, parentOf, requireAbsolute, rootLabel } from './fs-tree.ts'
 import { addFolderToManifest, removeFolderEntryInManifest, restoreManifestBackup, setFolderAccessInManifest } from './manifest-edit.ts'
@@ -58,16 +61,22 @@ import { createWorkspaceTool } from './workspace-tool.ts'
 export const name = 'dsh-octopus-operation-space'
 
 /**
- * Services required before mounting: the webserver routes, the session store,
- * the web runtime's trusted hosts, and the tool registry.
+ * Services required before mounting: the webserver routes, the session store and
+ * the tool registry.
  *
  * `tools` is a HARD dependency, not a probe. The trap AGENTS.md §3.1 records for
  * `sidebarRightTabs` applies here identically: a `ctx.get('tools')` that runs
  * before the provider is activated reads `undefined`, the no-op is permanent,
  * and nothing is logged. Every DSH tool plugin declares it the same way, and the
  * base bundle mounts the service — a host without it cannot use this plugin.
+ *
+ * The fence service is deliberately NOT listed. `webRuntime` used to be, and DSH
+ * 0.2.1 removed that service: the entry then waited forever and the tab vanished
+ * with no error (`pending (waiting for service: webRuntime)`). It is resolved per
+ * request with `ctx.get` instead, so either generation of host works and neither
+ * one can block the mount.
  */
-export const inject = ['webServer', 'sessions', 'webRuntime', 'tools']
+export const inject = ['webServer', 'sessions', 'tools']
 
 /** The route prefix every method of this plugin hangs under. */
 export const API_PREFIX = '/octopus/api'
@@ -446,8 +455,34 @@ function buildApi(ctx: Context, wsReg: WorkspaceRegistry): Record<string, ApiMet
 }
 
 /**
+ * Resolve the browser fence for ONE request.
+ *
+ * Two host generations, one answer:
+ * - DSH 0.2.1+ exposes `connection.requestRejection`, which applies the
+ *   Host/Origin fence AND requires an authenticated live Peer (403 vs 401). It is
+ *   preferred because it is the product's own fence — no local copy to drift.
+ * - 0.1.7 / 0.2.0 expose `webRuntime.trustedHosts`, fenced by the local
+ *   {@link isTrustedApiRequest} copy.
+ *
+ * Both are read with `ctx.get`, which cordis allows without a declared
+ * dependency, and both are read per request so a service that activates after
+ * this plugin still fences. A host with neither fails closed.
+ *
+ * @param ctx - plugin context.
+ * @param req - the request about to reach the plugin routes.
+ * @returns `401`/`403` to answer with, or `undefined` when the request may proceed.
+ */
+export function fenceRejection(ctx: Context, req: SidebarHttpRequest): number | undefined {
+  const connection = ctx.get('connection') as SidebarConnectionService | undefined
+  if (connection?.requestRejection !== undefined) return connection.requestRejection(req)
+  const runtime = ctx.get('webRuntime') as SidebarWebRuntime | undefined
+  if (runtime !== undefined) return isTrustedApiRequest(req, runtime.trustedHosts) ? undefined : 403
+  return 403
+}
+
+/**
  * Plugin body: register the bundled manifest skill and mount the fenced route.
- * @param ctx - host plugin context (webServer, sessions, webRuntime).
+ * @param ctx - host plugin context (webServer, sessions, tools).
  */
 export function apply(ctx: Context): void {
   // Register the bundled manifest runtime skill (if the host has a skills
@@ -458,7 +493,7 @@ export function apply(ctx: Context): void {
     ctx.effect(() => skillsRegistry.register(WORKSPACE_SKILL), 'octopus: register the operation-space skill')
   }
 
-  const fence = (req: SidebarHttpRequest): boolean => isTrustedApiRequest(req, ctx.webRuntime.trustedHosts)
+  const fence = (req: SidebarHttpRequest): number | undefined => fenceRejection(ctx, req)
   const workspaceRegistry = new WorkspaceRegistry((message) => ctx.logger?.info(`[octopus] ${message}`))
   ctx.effect(() => () => workspaceRegistry.dispose(), 'octopus: operation-space registry teardown')
 
@@ -495,8 +530,10 @@ export function apply(ctx: Context): void {
     kind: 'prefix',
     path: API_PREFIX,
     handler: async (req, res) => {
-      if (!fence(req)) {
-        writeJson(res, 403, { ok: false, error: { code: 'forbidden', message: 'forbidden' } })
+      const rejection = fence(req)
+      if (rejection !== undefined) {
+        const code = rejection === 401 ? 'unauthorized' : 'forbidden'
+        writeJson(res, rejection, { ok: false, error: { code, message: code } })
         return
       }
       if (req.method !== 'POST') {

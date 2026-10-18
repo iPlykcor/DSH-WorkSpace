@@ -25,13 +25,13 @@ composed the `web` profile - which is where the plugin was mounted. Installing i
 exists makes the tab appear whichever one gets booted, and costs one directory copy each. Use
 `-Profile <name>` to target exactly one.
 
-Version check: the plugin declares peer ranges `^0.1.7-rc.1 || ^0.2.0-rc.1` (i.e. [0.1.7-rc.1, 0.3.0)).
-Every DSH install found on the machine is reported, and the install is refused unless at least one is
-inside that range - and unless every DESKTOP install found is inside it, because a desktop app may be
-the host that boots the profile. The desktop app's own shipped CLI is consulted for its version
-(measured: it reported 0.2.0-rc.2 while the globally installed npm CLI still said 0.2.0-rc.1). A
-mismatched bundle is skipped at startup by reportSkippedBundles: the tab just disappears, with no
-plugin error in the log.
+Version check: the plugin declares peer ranges `^0.1.7-rc.1 || ^0.2.0-rc.1 || ^0.2.1-rc.2` (i.e.
+[0.1.7-rc.1, 0.3.0)). Every DSH install found on the machine is reported, and the install is refused
+unless at least one is inside that range - and unless every DESKTOP install found is inside it, because
+a desktop app may be the host that boots the profile. The desktop app's own shipped CLI is consulted for
+its version (measured: it reported 0.2.1-rc.2 while the globally installed npm CLI still said
+0.2.0-rc.1). A mismatched bundle is skipped at startup by reportSkippedBundles: the tab just
+disappears, with no plugin error in the log.
 
 Safety: every touched profile manifest is backed up before anything is written, a replaced plugin
 directory is kept aside rather than deleted, every copied file is checked against SHA256SUMS.txt, and
@@ -117,10 +117,11 @@ function Write-TextFile([string]$Path, [string]$Text) {
 }
 
 <#
-The plugin's declared peer ranges are `^0.1.7-rc.1 || ^0.2.0-rc.1`, i.e. [0.1.7-rc.1, 0.3.0). Caret on
-0.x locks the minor version, and semver only matches a prerelease against a comparator that shares the
-major.minor.patch tuple AND carries a prerelease - which is why the range needs both spellings. This
-check mirrors that range instead of trusting a "should be fine".
+The plugin's declared peer ranges are `^0.1.7-rc.1 || ^0.2.0-rc.1 || ^0.2.1-rc.2`, i.e.
+[0.1.7-rc.1, 0.3.0). Caret on 0.x locks the minor version, and semver only matches a prerelease
+against a comparator that shares the major.minor.patch tuple AND carries a prerelease - which is why
+each tested prerelease line needs its own spelling. This check mirrors that range instead of trusting a
+"should be fine".
 #>
 function Test-DshVersion([string]$Version) {
   if (-not $Version) { return 'unknown' }
@@ -246,7 +247,7 @@ function Get-DshInstalls {
     $version = Get-DesktopCliVersion $root
     $source = 'resources\runtime\cli\dsh.cmd --version'
     if (-not $version) {
-      # Fallback: the app's own version stamp. Measured to agree with the shipped CLI (0.2.0-rc.2).
+      # Fallback: the app's own version stamp. Measured to agree with the shipped CLI (0.2.1-rc.2).
       foreach ($exe in (Get-ChildItem $root -Filter '*.exe' -ErrorAction SilentlyContinue)) {
         $fileVersion = $exe.VersionInfo.FileVersion
         if ($fileVersion -and $fileVersion -match '^\d+\.\d+\.\d+') { $version = $fileVersion; $source = "$($exe.Name) FileVersion"; break }
@@ -424,11 +425,11 @@ $inRange = @($installs | Where-Object { $_.Verdict -eq 'yes' })
 $desktopOut = @($installs | Where-Object { $_.Kind -eq 'desktop' -and $_.Verdict -ne 'yes' })
 $verdictOk = ($inRange.Count -gt 0 -and $desktopOut.Count -eq 0)
 if ($verdictOk) {
-  Write-Pass "a DSH install is inside ^0.1.7-rc.1 || ^0.2.0-rc.1, and no desktop install is outside it"
+  Write-Pass "a DSH install is inside ^0.1.7-rc.1 || ^0.2.0-rc.1 || ^0.2.1-rc.2, and no desktop install is outside it"
 } elseif ($Force) {
   Write-Note "compatibility not confirmed but -Force was given; continuing"
 } else {
-  if ($inRange.Count -eq 0) { Write-Fail "no detected DSH install is inside ^0.1.7-rc.1 || ^0.2.0-rc.1" }
+  if ($inRange.Count -eq 0) { Write-Fail "no detected DSH install is inside ^0.1.7-rc.1 || ^0.2.0-rc.1 || ^0.2.1-rc.2" }
   if ($desktopOut.Count -gt 0) { Write-Fail "this desktop install is outside the supported range: $($desktopOut[0].Path) ($($desktopOut[0].Version))" }
   throw "install refused. An unsupported bundle is silently skipped at startup (the tab just disappears, with no plugin error in the log). Pass -Force to install anyway."
 }

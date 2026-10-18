@@ -26,10 +26,10 @@
 1. **这台机器上已经装好 DSH**，版本要落在插件声明的兼容范围内：
 
    ```
-   ^0.1.7-rc.1 || ^0.2.0-rc.1      即 0.1.7-rc.1 <= 版本 < 0.3.0
+   ^0.1.7-rc.1 || ^0.2.0-rc.1 || ^0.2.1-rc.2      即 0.1.7-rc.1 <= 版本 < 0.3.0
    ```
 
-   已在 **0.1.7-rc.2**、**0.2.0-rc.1**，以及桌面安装版 **0.2.0-rc.2** 上实测（后者的真实宿主冒烟全绿）。
+   已在 **0.1.7-rc.2**、**0.2.0-rc.1**，以及桌面安装版 **0.2.0-rc.2** / **0.2.1-rc.2** 上实测（两个桌面版都跑过真实宿主冒烟，全绿）。
 
 2. **至少一个 profile 已经成形**：`${DSH_HOME}\profiles\<profile>\package.json` 必须存在。全新机器上先让 DSH 自己建好 profile——命令行版跑一次 `dsh web --port 0 --no-open`（起来后 Ctrl+C 停掉），桌面版**启动一次应用**即可（它会创建自己的 profile）。
 
@@ -43,9 +43,9 @@
 
 ### 2.2 桌面安装版（Electron 应用）要额外知道的事
 
-1. **它自带一整套运行时**：`<安装目录>\resources\runtime\` 下有 `cli\bin\dsh.cmd`（DSH 自己的 CLI）、`bin\node.exe`（Node 24.18.1）、`pnpm\`（pnpm 11.7.0）。所以**不需要**另外装 Node / pnpm / 全局 `dsh`。
+1. **它自带一整套运行时**：`<安装目录>\resources\runtime\` 下有 `cli\bin\dsh.cmd`（DSH 自己的 CLI）、`bin\node.exe`（0.2.1-rc.2 实测 Node 24.21.0）、`pnpm\`（pnpm 11.28.5）。所以**不需要**另外装 Node / pnpm / 全局 `dsh`。
 
-2. **查版本要用它自带的 CLI，不要用 PATH 上的 `dsh`**：机器上可能同时存在一个旧的全局 CLI（实测：桌面版已是 `0.2.0-rc.2`，而 PATH 上的 `dsh` 还是 `0.2.0-rc.1`）。正确查法：
+2. **查版本要用它自带的 CLI，不要用 PATH 上的 `dsh`**：机器上可能同时存在一个旧的全局 CLI（实测：桌面版已是 `0.2.1-rc.2`，而 PATH 上的 `dsh` 还是 `0.2.0-rc.1`）。正确查法：
 
    ```powershell
    & "C:\Program Files\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" --version
@@ -186,7 +186,7 @@ Copy-Item '%USERPROFILE%\.dsh\profiles\web\octopus-offline-backups\<时间戳>\p
 - **安装前退出应用**：应用运行中会持续改写配置；退出后再装，避免写入竞争。
 - **不要用通配 `-Filter` 去清 profile 目录**：PowerShell 5.1 的 `-Filter 'package.json.*'` 会因 8.3 短名匹配连 `package.json` **本身**一起命中。删掉它之后 `dsh plugin remove` 会把该 profile 当成新 profile 重新初始化，本插件的挂载项随之消失。
 - **`cordis.yml` 的内容不代表挂载状态**：它每次启动都被无条件重写（正常内容就是注释 + 空 `[]`）。判断插件是否挂载只认 profile `package.json` 的那两处。
-- **不要用 HTTP 探测判断插件在不在**：DSH 对未知 POST 一律回 `405`、未知 GET 回 `404`，与插件是否加载无关；认 profile 清单。
+- **不要用 HTTP 探测判断插件在不在**：DSH 对未知 POST 一律回 `405`、未知 GET 回 `404`，与插件是否加载无关（0.2.1 起还要求浏览器凭据：**不带凭据一律 `401`**）；认 profile 清单。
 - **不要把 `dsh web` 的进程杀掉再"重启"**：如果你手上还有未完成的会话，那会一并丢掉。
 - **不要改 DSH 自己的安装**：本插件是独立包，靠 profile 引用挂载，不侵入 DSH。
 

@@ -136,6 +136,24 @@ export interface SidebarWebRuntime {
   trustedHosts: readonly string[]
 }
 
+/**
+ * The Connection service face (DSH 0.2.1+): the Host/Origin fence and peer
+ * authentication in one call, replacing the plain `webRuntime` trust list that
+ * 0.1.7 and 0.2.0 exposed. `403` is the fence refusing the authority/origin,
+ * `401` a missing or expired browser credential, and `undefined` means the
+ * request may proceed.
+ *
+ * Read through `ctx.get('connection')` and never declare it in the plugin-level
+ * `inject` array — see AGENTS §3.1. Naming `webRuntime` there is exactly what
+ * broke the plugin on 0.2.1: that service no longer exists, so the entry sat
+ * "pending (waiting for service: webRuntime)" and never mounted.
+ */
+export interface SidebarConnectionService {
+  requestRejection(request: {
+    headers: Record<string, string | string[] | undefined>
+  }): 401 | 403 | undefined
+}
+
 /** Registration options the plugin passes to `ctx.slots.register` (subset of the real options). */
 export interface SidebarSlotRegisterOptions {
   name: string
@@ -417,8 +435,14 @@ export interface SidebarContextShape {
   webServer: SidebarWebServer
   /** The session store (host `.get`) and the client list feed (`.list`) faces. */
   sessions: SidebarSessionStore & SidebarSessionsService
-  /** The web runtime trust list (bind-derived). */
-  webRuntime: SidebarWebRuntime
+  /**
+   * The web runtime trust list (0.1.7 / 0.2.0 only; 0.2.1 replaced it with
+   * {@link SidebarConnectionService}). Read with `ctx.get('webRuntime')`, never
+   * as a declared dependency — a missing service must degrade, not block mount.
+   */
+  webRuntime?: SidebarWebRuntime
+  /** The 0.2.1+ fence + peer authentication (preferred when the host has it). */
+  connection?: SidebarConnectionService
   /** The client slot registry — how the tab body/title reach the Sidebar's seats. */
   slots: SidebarSlotsService
   /**

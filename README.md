@@ -75,13 +75,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install-offline.ps1 -DryRu
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install-offline.ps1 -Yes      # 真装
 ```
 
-它是**纯文件操作**：不跑 npm / pnpm，不需要网络。做的事与范围：读包清单确认完整 → 选定目标 profile（**默认 `-Profile all`：装进 `profiles\` 下所有 profile**）→ **先探测 DSH 安装与版本**（要落在 `^0.1.7-rc.1 || ^0.2.0-rc.1`，即 `0.1.7-rc.1 ≤ 版本 < 0.3.0`；不匹配就拒绝，除非 `-Force`——不匹配的 bundle 会在启动时被静默跳过，页签凭空消失而日志里没有插件报错）→ 逐个 profile：备份它的 `package.json` 到 `octopus-offline-backups\<时间戳>\` → 复制 `package\` 进 `profiles\<profile>\node_modules\dsh-octopus-operation-space\` → 写**两处**挂载项（`dependencies` 与 `dsh.profile.bundles`）→ 逐文件比对 `SHA256SUMS.txt` 并回读清单 → 任何失败**把所有本次动过的 profile 一起回滚**（还原清单、还原被替换的旧目录、清掉半成品）。它**绝不重启**宿主。
+它是**纯文件操作**：不跑 npm / pnpm，不需要网络。做的事与范围：读包清单确认完整 → 选定目标 profile（**默认 `-Profile all`：装进 `profiles\` 下所有 profile**）→ **先探测 DSH 安装与版本**（要落在 `^0.1.7-rc.1 || ^0.2.0-rc.1 || ^0.2.1-rc.2`，即 `0.1.7-rc.1 ≤ 版本 < 0.3.0`；不匹配就拒绝，除非 `-Force`——不匹配的 bundle 会在启动时被静默跳过，页签凭空消失而日志里没有插件报错）→ 逐个 profile：备份它的 `package.json` 到 `octopus-offline-backups\<时间戳>\` → 复制 `package\` 进 `profiles\<profile>\node_modules\dsh-octopus-operation-space\` → 写**两处**挂载项（`dependencies` 与 `dsh.profile.bundles`）→ 逐文件比对 `SHA256SUMS.txt` 并回读清单 → 任何失败**把所有本次动过的 profile 一起回滚**（还原清单、还原被替换的旧目录、清掉半成品）。它**绝不重启**宿主。
 
 前提：这台机器已经装好 DSH（本包不含 DSH 本身），且至少一个 profile 已经成形——命令行版先跑一次 `dsh web --port 0 --no-open` 再停掉，**桌面安装版（Electron 应用）启动一次**即可。
 
-> **桌面安装版**（0.2.0-rc.2 实测）：它自带整套运行时（`resources\runtime\` 下的 `cli\bin\dsh.cmd`、Node 24.18.1、pnpm 11.7.0），所以内网机器不需要另装 Node / pnpm / 全局 `dsh`；**版本要问它自带的 CLI**（PATH 上可能并存一个更旧的全局 `dsh`——实测桌面版 0.2.0-rc.2 而 PATH 上是 0.2.0-rc.1），安装器两条路都会试。它创建的 `profiles\desktop` 由应用**独占管理**（CLI 直接拒绝碰它），而它实际启动的可能是别的 profile（实测是 `web`），**这就是默认 `-Profile all` 的原因**。装之前请**从托盘退出应用**，装完再启动。
-
-详细步骤、手工兜底写法（两处挂载项的 JSON 片段）、验证清单与已知坑都在包内的 **`INSTALL-OFFLINE.md`**。
+> **桌面安装版**（0.2.1-rc.2 实测）：它自带整套运行时（`resources\runtime\` 下的 `cli\bin\dsh.cmd`、Node 24.21.0、pnpm 11.28.5），所以内网机器不需要另装 Node / pnpm / 全局 `dsh`；**版本要问它自带的 CLI**（PATH 上可能并存一个更旧的全局 `dsh`——实测桌面版 0.2.1-rc.2 而 PATH 上是 0.2.0-rc.1），安装器两条路都会试。它创建的 `profiles\desktop` 由应用**独占管理**（CLI 直接拒绝碰它），而它实际启动的可能是别的 profile（实测是 `web`），**这就是默认 `-Profile all` 的原因**。装之前请**从托盘退出应用**，装完再启动。
 
 详细步骤、手工兜底写法（两处挂载项的 JSON 片段）、验证清单与已知坑都在包内的 **`INSTALL-OFFLINE.md`**。
 
@@ -147,7 +145,7 @@ JSONC：允许注释与尾逗号。相对路径以**清单文件所在目录**�
 
 ## 要求与限制
 
-- **DSH ≥ 0.1.5**（0.1.7-rc.2 与 0.2.0-rc.1 上都实测过）：页签依赖 `ctx.sidebarRightTabs`。更早的宿主上插件能挂载，但没有可见界面（页签注册为 no-op，不会报错）。7 个平台包的 peer 范围同时声明 `^0.1.7-rc.1` 与 `^0.2.0-rc.1`：DSH 从 0.2.0-rc.1 起会**在安装时**校验这份范围，不匹配就直接拒绝安装，而已装上的不匹配 bundle 会被**跳过并在启动时报告**——表现就是页签消失、日志里却没有插件报错。
+- **DSH ≥ 0.1.5**（0.1.7-rc.2、0.2.0-rc.1，以及桌面安装版 0.2.0-rc.2 / 0.2.1-rc.2 上都实测过）：页签依赖 `ctx.sidebarRightTabs`。更早的宿主上插件能挂载，但没有可见界面（页签注册为 no-op，不会报错）。7 个平台包的 peer 范围同时声明 `^0.1.7-rc.1`、`^0.2.0-rc.1` 与 `^0.2.1-rc.2`：DSH 从 0.2.0-rc.1 起会**在安装时**校验这份范围，不匹配就直接拒绝安装，而已装上的不匹配 bundle 会被**跳过并在启动时报告**——表现就是页签消失、日志里却没有插件报错。**0.2.1 起宿主把浏览器围栏换了个服务**（`webRuntime.trustedHosts` → `connection.requestRejection`，并额外要求已认证的浏览器凭据），插件两种宿主都认，所以升级不需要改配置。
 - 平台：Windows / macOS / Linux 均可（路径大小写折叠按宿主判定）。
 - 宿主重启后，进程内的作业区注册表是空的；此时客户端用本插件自己的键 `dsh-octopus:v1:<sessionId>` 记录过的清单路径重新激活。宿主一旦有状态，以宿主为准。
 - 越权检测只覆盖会话事件日志窗口内的写入。

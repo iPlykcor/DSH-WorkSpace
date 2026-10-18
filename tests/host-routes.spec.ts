@@ -26,12 +26,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import type {
   Context,
+  SidebarConnectionService,
   SidebarHttpRequest,
   SidebarHttpResponse,
   SidebarSessionEvent,
   SidebarToolDefinition,
   SidebarToolRunContext,
   SidebarWebRoute,
+  SidebarWebRuntime,
 } from '../src/context-types.ts'
 import { API_PREFIX, apply } from '../src/index.ts'
 import { WORKSPACE_CONTEXT_NAME, WORKSPACE_CONTEXT_ORDER } from '../src/workspace-context.ts'
@@ -100,8 +102,15 @@ interface PersistenceFake {
 
 /** Options of a fake mount. */
 interface MountOptions {
-  /** Non-loopback authorities this deployment serves. */
+  /** Non-loopback authorities this deployment serves (0.1.7 / 0.2.0 fence). */
   trustedHosts?: string[]
+  /**
+   * The 0.2.1+ fence service. When set it wins over `trustedHosts`, exactly as
+   * `fenceRejection` prefers it on a real host.
+   */
+  connection?: SidebarConnectionService
+  /** `null` fakes a host with no trust service at all (must fail closed). */
+  webRuntime?: SidebarWebRuntime | null
   /** The mutable session event log the fake store returns. */
   events?: SidebarSessionEvent[]
   /** The optional persistence service, when a case needs a cold session. */
@@ -120,6 +129,9 @@ function mount(options: MountOptions = {}): Harness {
   const disposers: Array<() => void> = []
   const logs: string[] = []
   const events = options.events ?? []
+  const webRuntime: SidebarWebRuntime | undefined = options.webRuntime === null
+    ? undefined
+    : options.webRuntime ?? { trustedHosts: options.trustedHosts ?? [] }
   const ctx = {
     webServer: {
       register(route: SidebarWebRoute): () => void {
@@ -127,7 +139,8 @@ function mount(options: MountOptions = {}): Harness {
         return () => { /* the fake owns teardown */ }
       },
     },
-    webRuntime: { trustedHosts: options.trustedHosts ?? [] },
+    ...(webRuntime === undefined ? {} : { webRuntime }),
+    ...(options.connection === undefined ? {} : { connection: options.connection }),
     tools: {
       register(definition: SidebarToolDefinition): () => void {
         tools.push(definition)
@@ -160,7 +173,12 @@ function mount(options: MountOptions = {}): Harness {
       return () => { /* the fake owns teardown */ }
     },
     // Optional-service probe: undefined means "this host has no such service".
-    get: (name: string) => (name === 'sessionPersistence' ? options.persistence : undefined),
+    get: (name: string) => {
+      if (name === 'sessionPersistence') return options.persistence
+      if (name === 'connection') return options.connection
+      if (name === 'webRuntime') return webRuntime
+      return undefined
+    },
   } as unknown as Context
   apply(ctx)
   if (routes.length !== 1) throw new Error(`expected exactly one route, got ${routes.length}`)
@@ -337,6 +355,49 @@ describe('host route trust fence', () => {
       body: JSON.stringify({ sessionId: SESSION }),
     })
     expect(reply.status).toBe(200)
+  })
+
+  // DSH 0.2.1 replaced `webRuntime.trustedHosts` with `connection.requestRejection`,
+  // which also requires an authenticated Peer. Both shapes must work, or the plugin
+  // either dies on the new host or silently drops the fence on the old one.
+  it('uses the 0.2.1 connection fence and maps its 401/403 envelopes', async () => {
+    const forbidden = await send(mount({ connection: { requestRejection: () => 403 } }).route, {
+      body: JSON.stringify({ sessionId: SESSION }),
+    })
+    expect(forbidden.status).toBe(403)
+    expect(errorCode(forbidden)).toBe('forbidden')
+
+    const unauthenticated = await send(mount({ connection: { requestRejection: () => 401 } }).route, {
+      body: JSON.stringify({ sessionId: SESSION }),
+    })
+    expect(unauthenticated.status).toBe(401)
+    expect(errorCode(unauthenticated)).toBe('unauthorized')
+
+    const allowed = await send(mount({ connection: { requestRejection: () => undefined } }).route, {
+      body: JSON.stringify({ sessionId: SESSION }),
+    })
+    expect(allowed.status).toBe(200)
+  })
+
+  it('prefers the connection service over a stale trust list', async () => {
+    // A 0.2.1 host can still carry `trustedHosts`; the connection fence decides.
+    const harness = mount({
+      trustedHosts: ['10.0.0.5:3080'],
+      connection: { requestRejection: () => 401 },
+    })
+    const reply = await send(harness.route, {
+      headers: { host: '10.0.0.5:3080' },
+      body: JSON.stringify({ sessionId: SESSION }),
+    })
+    expect(reply.status).toBe(401)
+  })
+
+  it('fails closed on a host that exposes neither fence service', async () => {
+    const reply = await send(mount({ webRuntime: null }).route, {
+      body: JSON.stringify({ sessionId: SESSION }),
+    })
+    expect(reply.status).toBe(403)
+    expect(errorCode(reply)).toBe('forbidden')
   })
 })
 
