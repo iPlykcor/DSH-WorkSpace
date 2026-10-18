@@ -68,7 +68,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\make-offline-package
 # 产物：dist\offline\octopus-offline-<版本>\  以及同名 .zip（0.5 MB 量级）
 ```
 
-把整个目录（或 zip）拷进内网。**最省事的装法：解压后双击 `deploy-offline.cmd`**（不用打开终端、不用记参数、结束时窗口会停住等你看结果；装完从托盘退出并重启桌面应用，页签就回来了）。它和下面这条命令做的是同一件事：
+如果只想要**一个文件**，再跑这一条：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\make-oneclick-package.ps1
+# 产物：dist\offline\octopus-oneclick-<版本>.zip —— 里面只有 deploy.cmd 一个文件（0.3 MB 量级）
+```
+
+把那个 zip 拷进内网、解压、**双击 `deploy.cmd`** 就装完了——不用参数、不用终端、不用联网，结束时会停住窗口等你看结果。它是自解压形态：外层十几行批处理只负责把内嵌的 PowerShell 部署器解到 `%TEMP%` 再执行，真正的安装逻辑与多文件包里的 `install-offline.ps1` **逐字节相同**，内嵌的 `package\` 也与多文件包**逐字节相同**（演练断言 77 个文件 + 安装器 + `SHA256SUMS.txt`）。
+
+> **为什么单文件是 `.cmd` 而不是 `.ps1`**：Windows 双击 `.ps1` **只会"打开"、不会"执行"**——本机实测 `.ps1` 的 `UserChoice` 指向一个 AppX 编辑器（记事本一类），`assoc .ps1` 报 `File association not found`，注册表里连带「使用 PowerShell 运行」动词的 `Microsoft.PowerShellScript.1` 都没有。只有 `.cmd` 是双击即执行。同一份部署器另以 `deploy.ps1` 形式放在 zip **外面**（`dist\offline\octopus-oneclick-<版本>\deploy.ps1`），给那些 `.ps1` 确实有该菜单项的机器用。
+
+把多文件包整个目录（或 zip）拷进内网。**最省事的装法：解压后双击 `deploy-offline.cmd`**（不用打开终端、不用记参数、结束时窗口会停住等你看结果；装完从托盘退出并重启桌面应用，页签就回来了）。它和下面这条命令做的是同一件事：
 
 ```powershell
 # 右键 →「使用 PowerShell 运行」deploy-offline.ps1 也行；菜单里没有这一项（本机实测 .ps1 无文件关联）时用 .cmd

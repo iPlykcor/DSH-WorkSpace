@@ -11,6 +11,10 @@ registry access:
     SHA256SUMS.txt                one hash per file, checked by the installer
     deploy-offline.cmd            double-click entry point (launches the .ps1 below)
     deploy-offline.ps1            one-click wrapper: needs no arguments, pauses before closing
+
+  For the single-file form (a zip whose only file is one double-clickable deploy.cmd),
+  run scripts\make-oneclick-package.ps1 afterwards: it embeds this bundle's package\,
+  installer, uninstaller and SHA256SUMS.txt into that one file.
     install-offline.ps1           pure file-operation installer (every profile by default, backup,
                                   both mount entries, per-file hashes, rollback across profiles)
     uninstall-plugin.ps1          the repo's uninstaller, which needs no working `dsh` either
@@ -249,8 +253,11 @@ if (-not $SkipZip) { Write-Host "  zip    : $(Join-Path $OutDir "$bundleName.zip
 Write-Host ""
 Write-Host "  On the air-gapped host: copy the bundle, extract it, then"
 Write-Host "    double-click deploy-offline.cmd"
-Write-Host "    (or right-click deploy-offline.ps1 -> 'Run with PowerShell')"
+Write-Host "    (or right-click deploy-offline.ps1 -> 'Run with PowerShell', where that verb exists)"
 Write-Host "  Both take no arguments; add -DryRun first to see the plan and write nothing."
+Write-Host "  Want ONE file instead of this bundle? scripts\make-oneclick-package.ps1 wraps the"
+Write-Host "  same installer into dist\offline\octopus-oneclick-<version>.zip, which holds a"
+Write-Host "  single double-clickable deploy.cmd (a .ps1 cannot be double-clicked into running)."
 Write-Host "  The manual form, if a policy blocks both:"
 Write-Host "    powershell -NoProfile -ExecutionPolicy Bypass -File .\install-offline.ps1 -Yes"
 Write-Host ""
