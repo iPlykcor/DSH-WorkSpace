@@ -268,7 +268,7 @@ describe('operation-space copy', () => {
     // dead weight in two languages. Reading the sources keeps this honest without
     // a hand-maintained list — including the keyboard entry, which owns the
     // refusal copy.
-    const [tab, shortcut, menu, rowMenu] = await Promise.all([
+    const [tab, shortcut, menu, rowMenu, tree] = await Promise.all([
       readFile(new URL('../src/client/multiroot-tab.tsx', import.meta.url), 'utf8'),
       readFile(new URL('../src/client/shortcut.ts', import.meta.url), 'utf8'),
       // The body's right-click menu owns copy of its own (the one trust level it
@@ -278,9 +278,12 @@ describe('operation-space copy', () => {
       // So does a row's menu: the two row labels, the implicit-root explanation
       // and the removal confirmation's four labels live there or in the tab.
       readFile(new URL('../src/client/row-menu.tsx', import.meta.url), 'utf8'),
+      // And so does the row list: the two level notes and the two desktop-action
+      // bubbles are its own (tests/tree-view.spec.tsx renders them).
+      readFile(new URL('../src/client/tree-view.tsx', import.meta.url), 'utf8'),
     ])
     const referenced = new Set(
-      [...`${tab}\n${shortcut}\n${menu}\n${rowMenu}`.matchAll(/\bt\('([A-Za-z]+)'/g)].map(match => match[1]),
+      [...`${tab}\n${shortcut}\n${menu}\n${rowMenu}\n${tree}`.matchAll(/\bt\('([A-Za-z]+)'/g)].map(match => match[1]),
     )
     expect(Object.keys(zh).filter(key => !referenced.has(key))).toEqual([])
   })

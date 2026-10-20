@@ -38,14 +38,12 @@
  * the built-in's own CSS is cited and pinned by tests.
  */
 import {
-  FileTypeIcon,
   IconCloseFillRegular,
   IconFolderCloseRegular,
   IconFolderOpenRegular,
   IconRefreshOutlineRegular,
   PathLabel,
   RiskConfirmation,
-  classifyFileType,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useCallback, useEffect, useRef, useState, type FocusEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import type { Context, SidebarRightFace, SidebarRightTabsFace, UiWorkspaceFace } from '../context-types.ts'
@@ -56,7 +54,6 @@ import {
 } from './api.ts'
 import { PointerContextMenu, accessOfMenuId, buildBodyMenu, type MenuPoint } from './body-menu.tsx'
 import { decideDiscovery } from './discovery-decision.ts'
-import { orderEntries } from './entry-order.ts'
 import { sessionFileAddress } from './file-address.ts'
 import { OctopusGuideArtwork } from './guide-artwork.tsx'
 import { t } from './locales.ts'
@@ -64,6 +61,8 @@ import { RevealButton } from './reveal-button.tsx'
 import { RootPermissionToggle, RootTrailingBadge } from './root-markers.tsx'
 import { buildRowMenu, rowMenuIntent } from './row-menu.tsx'
 import { ToolButton } from './tool-button.tsx'
+import { treeItems } from './tree-rows.ts'
+import { FsTreeLevel } from './tree-view.tsx'
 import {
   LABEL_PRIMARY,
   LABEL_SECONDARY,
@@ -72,7 +71,6 @@ import {
   TOOL_RADIUS,
   bodyStyle,
   dirIconStyle,
-  fileIconStyle,
   headerStyle,
   nameStyle,
   noteStyle,
@@ -634,55 +632,28 @@ function makeBody(ctx: Context): (props: BodyProps) => ReactNode {
       },
     })
 
-    /** Render one directory's children (indented by depth, ordered like the built-in tree). */
-    const renderRows = (parent: string, depth: number): ReactNode => {
-      const entries = children.get(parent)
-      // The built-in's own states, at its own metrics: a note line, never a row.
-      if (entries === undefined) return <div style={noteStyle}>{t('loading')}</div>
-      if (entries.length === 0) return <div style={noteStyle}>{t('emptyFolder')}</div>
-      return orderEntries(entries).map((entry) => {
-        const open = expanded.has(entry.path)
-        return (
-          <div key={entry.path} style={rowWrapperStyle(activeRow === entry.path)} {...rowActivity(entry.path)}>
-            <button
-              type="button"
-              title={entry.path}
-              aria-expanded={entry.isDir ? open : undefined}
-              style={rowStyle(depth, { opacity: entry.broken ? 0.5 : 1 })}
-              onClick={() => { if (entry.isDir) toggle(entry.path); else openFile(entry.path) }}
-            >
-              {entry.isDir
-                ? (
-                  // Regular weight, no explicit size and the tertiary colour: this is
-                  // the glyph the built-in file tree draws for a directory.
-                  <span style={dirIconStyle}>
-                    {open ? <IconFolderOpenRegular /> : <IconFolderCloseRegular />}
-                  </span>
-                )
-                : (
-                  // The product's own classifier and category-coloured glyph, which is
-                  // exactly what the built-in pane shows for the same file name.
-                  <span style={fileIconStyle}>
-                    <FileTypeIcon kind={classifyFileType(entry.name)} size={16} />
-                  </span>
-                )}
-              <span style={nameStyle}>{entry.name}</span>
-              {entry.isSymlink && <span style={{ fontSize: 11, opacity: 0.5 }}>↗</span>}
-            </button>
-            {/* A broken link has no target to hand to the desktop, and the host
-                would refuse it anyway: the row simply offers no action. */}
-            {canReveal && !entry.broken && (
-              <RevealButton
-                path={entry.path}
-                label={entry.isDir ? t('workspaceOpenFolder') : t('workspaceShowFile')}
-                onReveal={reveal}
-                visible={activeRow === entry.path}
-              />
-            )}
-          </div>
-        )
-      })
-    }
+    /**
+     * Render one directory's visible subtree: a FLAT list, indented by depth,
+     * covering every level the user has opened. The walking (`treeItems`) and the
+     * drawing (`FsTreeLevel`) are separate, tested units — this pane once listed
+     * a folder's children and stopped there, because the recursion lived inline
+     * in JSX where nothing could assert it.
+     * @param parent - absolute path of the directory whose level is drawn.
+     * @param depth - depth of that directory's children (a root's are 1).
+     * @returns the rows and notes for that subtree.
+     */
+    const renderRows = (parent: string, depth: number): ReactNode => (
+      <FsTreeLevel
+        items={treeItems(parent, depth, children, expanded)}
+        openPaths={expanded}
+        activeRow={activeRow}
+        canReveal={canReveal}
+        onToggle={toggle}
+        onOpenFile={openFile}
+        onReveal={reveal}
+        onActiveRowChange={setActiveRow}
+      />
+    )
 
     if (sessionId === undefined || sessionId === '' || workspace === undefined) {
       return (

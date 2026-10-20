@@ -34,6 +34,7 @@ import {
   bodyStyle,
   headerStyle,
   noteStyle,
+  noteStyleAt,
   rowStyle,
   rowWrapperStyle,
   tabRootStyle,
@@ -97,6 +98,20 @@ describe('metrics shared with the built-in file pane', () => {
     expect(wrapper.boxSizing).toBe('border-box')
     // The desktop action's glyph and the path badge are the same size, side by side.
     expect(ROW_TOOL_ICON_SIZE).toBe(15)
+  })
+
+  it('indents a level’s note line to the level it belongs to', () => {
+    // A note stands in for the rows of the level just opened, so it must start
+    // where those rows start — the built-in's note inherits that from the `<ul>`
+    // it sits in, and a flat list has to do it by hand. Without this, the
+    // loading/empty line of a nested folder appeared at the pane's left edge.
+    expect(noteStyleAt(1).paddingLeft).toBe(ROW_PADDING_X + INDENT_PX)
+    expect(noteStyleAt(3).paddingLeft).toBe(ROW_PADDING_X + 3 * INDENT_PX)
+    // Everything else stays the built-in's note.
+    expect(noteStyleAt(2).fontSize).toBe(NOTE_FONT_SIZE)
+    expect(noteStyleAt(2).color).toBe(noteStyle.color)
+    // It returns a copy: a caller's depth must never leak into the shared style.
+    expect(noteStyle).not.toHaveProperty('paddingLeft')
   })
 
   it('paints hover and colour with the built-in tokens', () => {

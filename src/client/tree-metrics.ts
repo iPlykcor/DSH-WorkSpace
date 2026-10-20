@@ -223,6 +223,23 @@ export const noteStyle: CSSProperties = {
   color: LABEL_TERTIARY,
 }
 
+/**
+ * A note line belonging to the level under a directory at `depth`: the same
+ * `.note`, shifted right to that level's indent.
+ *
+ * The built-in's note sits inside the `<ul>` it belongs to, so it inherits that
+ * level's indent; this pane's rows are flat and carry their indent on
+ * themselves, so the note has to do the same. Without this, the
+ * "loading"/"empty" line of a nested directory appeared at the far left, under
+ * the wrong parent — which reads as a row that lost its place rather than as
+ * the note for the folder just opened.
+ * @param depth - the depth of the rows the note stands in for.
+ * @returns the note style for that depth.
+ */
+export function noteStyleAt(depth: number): CSSProperties {
+  return { ...noteStyle, paddingLeft: ROW_PADDING_X + depth * INDENT_PX }
+}
+
 /** The centred status panel: the built-in's `.status`. */
 export const statusStyle: CSSProperties = {
   display: 'flex',
